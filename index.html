@@ -40,9 +40,13 @@
 
     #controls {
         flex-shrink: 0;
+        height: 56px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         z-index: 100;
         background: #222;
-        padding: 15px;
+        padding: 0 15px;
         text-align: center;
         box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
@@ -52,19 +56,27 @@
         color: #ffd54f;
     }
 
+    /* Debug console: a small transparent overlay pinned to the top of the
+       viewport (not in normal flow) so it never eats into the reader's space. */
     #log {
-        flex-shrink: 0;
+        position: fixed;
+        top: 56px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 90%;
         max-width: 1000px;
-        margin: 10px auto;
-        padding: 10px;
-        background: #111;
+        margin: 0;
+        padding: 6px 10px;
+        background: rgba(17, 17, 17, 0.45);
+        backdrop-filter: blur(3px);
         color: #8bc34a;
-        font-size: 12px;
+        font-size: 11px;
         white-space: pre-wrap;
-        border-radius: 4px;
+        border-radius: 0 0 6px 6px;
         display: none;
-        max-height: 200px;
+        max-height: 70px;
         overflow-y: auto;
+        z-index: 300;
     }
 
     #reader {
@@ -126,7 +138,7 @@
         align-items: center;
         justify-content: center;
         overflow: auto;
-        padding: 20px;
+        padding: 6px;
         position: relative;
     }
 
@@ -137,21 +149,33 @@
 
     .page-image {
         max-width: 100%;
-        max-height: calc(100vh - 170px);
+        max-height: calc(100vh - 68px);
         object-fit: contain;
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
     }
 
+    /* Navigation controls: a transparent floating pill, pinned to the bottom
+       of the viewport on its own z-index so it overlays the image instead
+       of taking up layout space (which is what lets the image span nearly
+       the full viewport height above). */
     #pageNav {
+        position: fixed;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
         display: flex;
         align-items: center;
         gap: 18px;
-        margin-top: 14px;
+        padding: 8px 20px;
+        background: rgba(20, 20, 20, 0.35);
+        backdrop-filter: blur(4px);
+        border-radius: 30px;
+        z-index: 150;
     }
 
     #pageNav button {
-        background: #333;
+        background: rgba(255, 255, 255, 0.12);
         color: white;
         border: none;
         width: 40px;
@@ -163,11 +187,11 @@
     }
 
     #pageNav button:hover:not(:disabled) {
-        background: #444;
+        background: rgba(255, 255, 255, 0.22);
     }
 
     #pageNav button:disabled {
-        opacity: 0.3;
+        opacity: 0.25;
         cursor: default;
     }
 
@@ -176,6 +200,7 @@
         min-width: 70px;
         text-align: center;
         font-size: 14px;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
     }
 
     @media (max-width: 600px) {
