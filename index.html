@@ -25,36 +25,26 @@
         box-sizing: border-box;
     }
 
+    html, body {
+        height: 100%;
+    }
+
     body {
         margin: 0;
         background: #1a1a1a;
         color: white;
         font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
     }
 
     #controls {
-        position: sticky;
-        top: 0;
+        flex-shrink: 0;
         z-index: 100;
         background: #222;
         padding: 15px;
         text-align: center;
         box-shadow: 0 2px 10px rgba(0,0,0,0.5);
-    }
-
-    #viewer {
-        max-width: 1000px;
-        margin: 20px auto;
-        padding: 0 10px;
-    }
-
-    .comic-page {
-        width: 100%;
-        height: auto;
-        display: block;
-        margin-bottom: 15px;
-        border-radius: 4px;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.6);
     }
 
     .status {
@@ -63,6 +53,7 @@
     }
 
     #log {
+        flex-shrink: 0;
         max-width: 1000px;
         margin: 10px auto;
         padding: 10px;
@@ -72,6 +63,125 @@
         white-space: pre-wrap;
         border-radius: 4px;
         display: none;
+        max-height: 200px;
+        overflow-y: auto;
+    }
+
+    #reader {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+    }
+
+    #sidebar {
+        width: 130px;
+        flex-shrink: 0;
+        overflow-y: auto;
+        background: #141414;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        border-right: 1px solid #000;
+    }
+
+    .thumb-item {
+        cursor: pointer;
+        text-align: center;
+    }
+
+    .thumb {
+        width: 100%;
+        display: block;
+        border-radius: 3px;
+        opacity: 0.55;
+        border: 2px solid transparent;
+    }
+
+    .thumb-item:hover .thumb {
+        opacity: 0.85;
+    }
+
+    .thumb-item.active .thumb {
+        opacity: 1;
+        border-color: #ffd54f;
+    }
+
+    .thumb-label {
+        display: block;
+        font-size: 11px;
+        color: #888;
+        margin-top: 3px;
+    }
+
+    .thumb-item.active .thumb-label {
+        color: #ffd54f;
+    }
+
+    #mainView {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: auto;
+        padding: 20px;
+        position: relative;
+    }
+
+    #emptyState {
+        color: #666;
+        font-size: 14px;
+    }
+
+    .page-image {
+        max-width: 100%;
+        max-height: calc(100vh - 170px);
+        object-fit: contain;
+        border-radius: 4px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+    }
+
+    #pageNav {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        margin-top: 14px;
+    }
+
+    #pageNav button {
+        background: #333;
+        color: white;
+        border: none;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        font-size: 20px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    #pageNav button:hover:not(:disabled) {
+        background: #444;
+    }
+
+    #pageNav button:disabled {
+        opacity: 0.3;
+        cursor: default;
+    }
+
+    #pageIndicator {
+        color: #ffd54f;
+        min-width: 70px;
+        text-align: center;
+        font-size: 14px;
+    }
+
+    @media (max-width: 600px) {
+        #sidebar {
+            width: 80px;
+        }
     }
 </style>
 </head>
@@ -84,19 +194,77 @@
 </div>
 
 <div id="log"></div>
-<div id="viewer"></div>
+
+<div id="reader">
+    <div id="sidebar"></div>
+    <div id="mainView">
+        <div id="emptyState">Open a .cbz or .cbr file to begin</div>
+        <img id="pageImage" class="page-image" hidden>
+        <div id="pageNav" hidden>
+            <button id="prevBtn" aria-label="Previous page">&#8249;</button>
+            <span id="pageIndicator"></span>
+            <button id="nextBtn" aria-label="Next page">&#8250;</button>
+        </div>
+    </div>
+</div>
 
 <script>
 const fileInput = document.getElementById("fileInput");
-const viewer = document.getElementById("viewer");
 const status = document.getElementById("status");
 const log = document.getElementById("log");
+const sidebar = document.getElementById("sidebar");
+const emptyState = document.getElementById("emptyState");
+const pageImage = document.getElementById("pageImage");
+const pageNav = document.getElementById("pageNav");
+const pageIndicator = document.getElementById("pageIndicator");
+const prevBtn = document.getElementById("prevBtn");
+const nextBtn = document.getElementById("nextBtn");
+
+let pageUrls = [];
+let currentIndex = 0;
 
 function writeLog(text) {
     log.style.display = "block";
     log.textContent += text + "\n";
     console.log(text);
 }
+
+function revokeAllPageUrls() {
+    pageUrls.forEach(url => URL.revokeObjectURL(url));
+    pageUrls = [];
+}
+
+function showPage(index) {
+    if (pageUrls.length === 0) return;
+
+    currentIndex = Math.max(0, Math.min(index, pageUrls.length - 1));
+    pageImage.src = pageUrls[currentIndex];
+    pageIndicator.textContent = `${currentIndex + 1} / ${pageUrls.length}`;
+    prevBtn.disabled = currentIndex === 0;
+    nextBtn.disabled = currentIndex === pageUrls.length - 1;
+
+    const thumbs = sidebar.children;
+    for (let i = 0; i < thumbs.length; i++) {
+        thumbs[i].classList.toggle("active", i === currentIndex);
+    }
+    const activeThumb = thumbs[currentIndex];
+    if (activeThumb) {
+        activeThumb.scrollIntoView({ block: "nearest" });
+    }
+}
+
+prevBtn.addEventListener("click", () => showPage(currentIndex - 1));
+nextBtn.addEventListener("click", () => showPage(currentIndex + 1));
+
+pageImage.onerror = () => {
+    console.error("Failed to display page:", currentIndex + 1);
+};
+
+document.addEventListener("keydown", (event) => {
+    if (pageUrls.length === 0) return;
+    if (event.key === "ArrowLeft") showPage(currentIndex - 1);
+    else if (event.key === "ArrowRight") showPage(currentIndex + 1);
+});
 
 const IMAGE_EXTENSIONS = [
     ".jpg",
@@ -188,7 +356,12 @@ fileInput.addEventListener("change", async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    viewer.innerHTML = "";
+    revokeAllPageUrls();
+    sidebar.innerHTML = "";
+    pageImage.hidden = true;
+    pageNav.hidden = true;
+    emptyState.hidden = false;
+    emptyState.textContent = "Loading...";
     log.textContent = "";
     status.textContent = "Loading...";
 
@@ -222,29 +395,41 @@ fileInput.addEventListener("change", async (event) => {
             );
         }
 
-        for (const page of pages) {
+        for (let i = 0; i < pages.length; i++) {
 
+            const page = pages[i];
             writeLog("Loading image: " + page.name);
 
             const blob = await page.getBlob();
             const url = URL.createObjectURL(blob);
-            const img = document.createElement("img");
+            pageUrls.push(url);
 
-            img.className = "comic-page";
-            img.loading = "lazy";
-            img.src = url;
-            img.alt = page.name;
+            const thumbItem = document.createElement("div");
+            thumbItem.className = "thumb-item";
+            thumbItem.addEventListener("click", () => showPage(i));
 
-            img.onload = () => {
-                URL.revokeObjectURL(url);
+            const thumbImg = document.createElement("img");
+            thumbImg.className = "thumb";
+            thumbImg.loading = "lazy";
+            thumbImg.src = url;
+            thumbImg.alt = page.name;
+            thumbImg.onerror = () => {
+                console.error("Failed thumbnail:", page.name);
             };
 
-            img.onerror = () => {
-                console.error("Failed image:", page.name);
-            };
+            const thumbLabel = document.createElement("span");
+            thumbLabel.className = "thumb-label";
+            thumbLabel.textContent = i + 1;
 
-            viewer.appendChild(img);
+            thumbItem.appendChild(thumbImg);
+            thumbItem.appendChild(thumbLabel);
+            sidebar.appendChild(thumbItem);
         }
+
+        emptyState.hidden = true;
+        pageImage.hidden = false;
+        pageNav.hidden = false;
+        showPage(0);
 
         status.textContent = `${pages.length} pages loaded`;
 
@@ -253,6 +438,10 @@ fileInput.addEventListener("change", async (event) => {
         console.error(error);
 
         status.textContent = "Failed";
+        emptyState.hidden = false;
+        emptyState.textContent = "Failed to load comic.";
+        pageImage.hidden = true;
+        pageNav.hidden = true;
 
         alert(
             "Comic Load Error:\n\n" +
