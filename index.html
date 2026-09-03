@@ -360,7 +360,17 @@
 <body>
 
 <div id="controls">
-    <input type="file" id="fileInput" accept=".cbz,.zip,.cbr,.rar">
+    <!-- iOS Safari maps `accept` extensions to UTIs internally, and unrecognized
+         custom extensions like .cbz/.cbr don't map to any UTI, so its file
+         picker silently filters them out of the list entirely (unlike .zip,
+         which maps to the built-in public.zip-archive type and shows fine).
+         Listing MIME types too, plus a generic octet-stream fallback, gets
+         iOS to recognize and show them without the user renaming the file. -->
+    <input
+        type="file"
+        id="fileInput"
+        accept=".cbz,.zip,.cbr,.rar,application/zip,application/x-zip-compressed,application/vnd.comicbook+zip,application/x-cbz,application/vnd.rar,application/x-rar-compressed,application/vnd.comicbook-rar,application/x-cbr,application/octet-stream"
+    >
     <span id="status" class="status"></span>
 </div>
 
