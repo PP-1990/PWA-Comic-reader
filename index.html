@@ -29,6 +29,36 @@
         height: 100%;
     }
 
+    /* Comic-book styled scrollbars: bold yellow/orange thumb with an inked
+       black outline, instead of the default flat gray browser scrollbar. */
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: #ffca28 #141414;
+    }
+
+    *::-webkit-scrollbar {
+        width: 14px;
+        height: 14px;
+    }
+
+    *::-webkit-scrollbar-track {
+        background: #141414;
+    }
+
+    *::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #ffe082, #ff9800);
+        border: 3px solid #141414;
+        border-radius: 10px;
+    }
+
+    *::-webkit-scrollbar-thumb:hover {
+        background: linear-gradient(180deg, #ffecb3, #ffa726);
+    }
+
+    *::-webkit-scrollbar-corner {
+        background: #141414;
+    }
+
     body {
         margin: 0;
         background: #1a1a1a;
@@ -135,9 +165,9 @@
         min-width: 0;
         display: flex;
         flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        overflow: auto;
+        align-items: stretch;
+        overflow-y: auto;
+        overflow-x: hidden;
         padding: 6px;
         position: relative;
     }
@@ -145,12 +175,16 @@
     #emptyState {
         color: #666;
         font-size: 14px;
+        margin: auto;
     }
 
+    /* Page fills the full available width; height follows naturally from
+       the image's own aspect ratio, and #mainView scrolls vertically for
+       whatever doesn't fit instead of shrinking the page down to fit. */
     .page-image {
-        max-width: 100%;
-        max-height: calc(100vh - 68px);
-        object-fit: contain;
+        width: 100%;
+        height: auto;
+        display: block;
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
     }
