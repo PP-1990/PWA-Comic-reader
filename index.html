@@ -107,12 +107,28 @@
         max-height: 70px;
         overflow-y: auto;
         z-index: 300;
+        /* Debug-only text, not interactive — without this, it would sit on
+           top of (and block taps on) the thumbnail strip/page underneath
+           for as long as it stays visible, which is indefinitely once any
+           log line has been written. */
+        pointer-events: none;
     }
 
     #reader {
         flex: 1;
         min-height: 0;
         display: flex;
+    }
+
+    #sidebarWrap {
+        flex-shrink: 0;
+        display: flex;
+    }
+
+    /* Hidden on desktop/tablet; only shown as scroll arrows flanking the
+       horizontal thumbnail strip on narrow (mobile) viewports below. */
+    .sidebar-arrow {
+        display: none;
     }
 
     #sidebar {
@@ -167,7 +183,7 @@
         flex-direction: column;
         align-items: stretch;
         overflow-y: auto;
-        overflow-x: hidden;
+        overflow-x: auto;
         padding: 6px;
         position: relative;
     }
@@ -178,15 +194,64 @@
         margin: auto;
     }
 
-    /* Page fills the full available width; height follows naturally from
-       the image's own aspect ratio, and #mainView scrolls vertically for
-       whatever doesn't fit instead of shrinking the page down to fit. */
+    /* Page fills the full available width by default; height follows
+       naturally from the image's own aspect ratio, and #mainView scrolls
+       for whatever doesn't fit. Zooming (see #zoomControls) grows the
+       image's width past 100%, so #mainView also scrolls horizontally. */
     .page-image {
         width: 100%;
         height: auto;
         display: block;
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+        cursor: zoom-in;
+    }
+
+    /* Zoom controls: a transparent floating pill in the top-right corner,
+       same visual language as #pageNav but its own fixed position so it
+       never collides with the console overlay or the nav pill. */
+    #zoomControls {
+        position: fixed;
+        top: 66px;
+        right: 14px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 6px 12px;
+        background: rgba(20, 20, 20, 0.35);
+        backdrop-filter: blur(4px);
+        border-radius: 24px;
+        z-index: 150;
+    }
+
+    #zoomControls button {
+        background: rgba(255, 255, 255, 0.12);
+        color: white;
+        border: none;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        font-size: 16px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    #zoomControls button:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.22);
+    }
+
+    #zoomControls button:disabled {
+        opacity: 0.25;
+        cursor: default;
+    }
+
+    #zoomLevelLabel {
+        color: #ffd54f;
+        min-width: 42px;
+        text-align: center;
+        font-size: 13px;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        cursor: pointer;
     }
 
     /* Navigation controls: a transparent floating pill, pinned to the bottom
@@ -237,9 +302,63 @@
         text-shadow: 0 1px 3px rgba(0,0,0,0.8);
     }
 
+    /* Mobile: the vertical sidebar becomes a horizontal filmstrip of
+       thumbnails above the page, with tap arrows on both ends instead of
+       eating into the already-narrow width with a side column. */
     @media (max-width: 600px) {
+        #reader {
+            flex-direction: column;
+        }
+
+        #sidebarWrap {
+            width: 100%;
+            height: 84px;
+            background: #141414;
+            border-bottom: 1px solid #000;
+        }
+
+        .sidebar-arrow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            width: 34px;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.06);
+            color: white;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+        }
+
+        .sidebar-arrow:hover {
+            background: rgba(255, 255, 255, 0.14);
+        }
+
         #sidebar {
-            width: 80px;
+            width: auto;
+            flex: 1;
+            min-width: 0;
+            height: 100%;
+            flex-direction: row;
+            align-items: center;
+            overflow-x: auto;
+            overflow-y: hidden;
+            border-right: none;
+        }
+
+        .thumb-item {
+            flex-shrink: 0;
+            width: 54px;
+        }
+
+        /* Stacked above (not beside) the nav pill, which is centered and
+           would otherwise collide with a right-aligned zoom pill on
+           narrow screens. */
+        #zoomControls {
+            top: auto;
+            bottom: 82px;
+            right: 14px;
         }
     }
 </style>
@@ -255,10 +374,19 @@
 <div id="log"></div>
 
 <div id="reader">
-    <div id="sidebar"></div>
+    <div id="sidebarWrap">
+        <button id="sidebarPrev" class="sidebar-arrow" aria-label="Scroll thumbnails left">&#8249;</button>
+        <div id="sidebar"></div>
+        <button id="sidebarNext" class="sidebar-arrow" aria-label="Scroll thumbnails right">&#8250;</button>
+    </div>
     <div id="mainView">
         <div id="emptyState">Open a .cbz or .cbr file to begin</div>
         <img id="pageImage" class="page-image" hidden>
+        <div id="zoomControls" hidden>
+            <button id="zoomOutBtn" aria-label="Zoom out">&#8722;</button>
+            <span id="zoomLevelLabel" title="Click to reset zoom">100%</span>
+            <button id="zoomInBtn" aria-label="Zoom in">&#43;</button>
+        </div>
         <div id="pageNav" hidden>
             <button id="prevBtn" aria-label="Previous page">&#8249;</button>
             <span id="pageIndicator"></span>
@@ -272,15 +400,71 @@ const fileInput = document.getElementById("fileInput");
 const status = document.getElementById("status");
 const log = document.getElementById("log");
 const sidebar = document.getElementById("sidebar");
+const sidebarPrev = document.getElementById("sidebarPrev");
+const sidebarNext = document.getElementById("sidebarNext");
+const mainView = document.getElementById("mainView");
 const emptyState = document.getElementById("emptyState");
 const pageImage = document.getElementById("pageImage");
 const pageNav = document.getElementById("pageNav");
 const pageIndicator = document.getElementById("pageIndicator");
 const prevBtn = document.getElementById("prevBtn");
 const nextBtn = document.getElementById("nextBtn");
+const zoomControls = document.getElementById("zoomControls");
+const zoomInBtn = document.getElementById("zoomInBtn");
+const zoomOutBtn = document.getElementById("zoomOutBtn");
+const zoomLevelLabel = document.getElementById("zoomLevelLabel");
 
 let pageUrls = [];
 let currentIndex = 0;
+
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 0.25;
+let zoomLevel = ZOOM_MIN;
+
+function applyZoom() {
+    pageImage.style.width = (zoomLevel * 100) + "%";
+    zoomLevelLabel.textContent = Math.round(zoomLevel * 100) + "%";
+    zoomOutBtn.disabled = zoomLevel <= ZOOM_MIN;
+    zoomInBtn.disabled = zoomLevel >= ZOOM_MAX;
+    pageImage.style.cursor = zoomLevel >= ZOOM_MAX ? "zoom-out" : "zoom-in";
+}
+
+function resetZoom() {
+    zoomLevel = ZOOM_MIN;
+    applyZoom();
+    mainView.scrollLeft = 0;
+}
+
+zoomInBtn.addEventListener("click", () => {
+    zoomLevel = Math.min(ZOOM_MAX, +(zoomLevel + ZOOM_STEP).toFixed(2));
+    applyZoom();
+});
+
+zoomOutBtn.addEventListener("click", () => {
+    zoomLevel = Math.max(ZOOM_MIN, +(zoomLevel - ZOOM_STEP).toFixed(2));
+    applyZoom();
+    if (zoomLevel === ZOOM_MIN) mainView.scrollLeft = 0;
+});
+
+zoomLevelLabel.addEventListener("click", resetZoom);
+
+pageImage.addEventListener("dblclick", () => {
+    if (zoomLevel > ZOOM_MIN) {
+        resetZoom();
+    } else {
+        zoomLevel = 2;
+        applyZoom();
+    }
+});
+
+sidebarPrev.addEventListener("click", () => {
+    sidebar.scrollBy({ left: -150, top: -150 });
+});
+
+sidebarNext.addEventListener("click", () => {
+    sidebar.scrollBy({ left: 150, top: 150 });
+});
 
 function writeLog(text) {
     log.style.display = "block";
@@ -298,6 +482,7 @@ function showPage(index) {
 
     currentIndex = Math.max(0, Math.min(index, pageUrls.length - 1));
     pageImage.src = pageUrls[currentIndex];
+    resetZoom();
     pageIndicator.textContent = `${currentIndex + 1} / ${pageUrls.length}`;
     prevBtn.disabled = currentIndex === 0;
     nextBtn.disabled = currentIndex === pageUrls.length - 1;
@@ -308,7 +493,7 @@ function showPage(index) {
     }
     const activeThumb = thumbs[currentIndex];
     if (activeThumb) {
-        activeThumb.scrollIntoView({ block: "nearest" });
+        activeThumb.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
 }
 
@@ -419,6 +604,7 @@ fileInput.addEventListener("change", async (event) => {
     sidebar.innerHTML = "";
     pageImage.hidden = true;
     pageNav.hidden = true;
+    zoomControls.hidden = true;
     emptyState.hidden = false;
     emptyState.textContent = "Loading...";
     log.textContent = "";
@@ -488,6 +674,7 @@ fileInput.addEventListener("change", async (event) => {
         emptyState.hidden = true;
         pageImage.hidden = false;
         pageNav.hidden = false;
+        zoomControls.hidden = false;
         showPage(0);
 
         status.textContent = `${pages.length} pages loaded`;
@@ -501,6 +688,7 @@ fileInput.addEventListener("change", async (event) => {
         emptyState.textContent = "Failed to load comic.";
         pageImage.hidden = true;
         pageNav.hidden = true;
+        zoomControls.hidden = true;
 
         alert(
             "Comic Load Error:\n\n" +
