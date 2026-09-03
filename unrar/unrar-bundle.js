@@ -1,5 +1,30 @@
-// Emscripten-compiled unrar (from node-unrar-js v2.0.2, MIT License)
-// https://github.com/YuJianrong/node-unrar.js
+// ============================================================================
+// WHAT IS THIS FILE?
+// ============================================================================
+// This is a third-party code library (not something written from scratch for
+// this app) that teaches the browser how to open .rar/.cbr archives. It is
+// mostly machine-generated and intentionally squashed onto very few, very
+// long lines to keep the file size down — it is NOT meant to be read or
+// edited by a human, and you do not need to understand or touch anything in
+// this file to use or modify the comic reader app itself.
+//
+// If you're troubleshooting the app and want to change how it *looks* or
+// *behaves*, you want ../index.html instead — that's the file with all the
+// readable, hand-written code and comments.
+//
+// You'd only ever need to look in here if the browser's error console
+// (press F12 → Console tab) shows an error whose text mentions "UnrarJS",
+// "Module", or "unrar" while opening a .cbr/.rar file — and even then, the
+// fix is almost always in index.html's extractRarEntries() function, not
+// in this file.
+//
+// Where this came from: it's the WASM (WebAssembly) build of "unrar" from
+// the node-unrar-js project (MIT License) at
+// https://github.com/YuJianrong/node-unrar.js — combined with a small
+// hand-written wrapper further down this file (search for "Hand-ported"
+// below) that adapts it to run directly in a browser tab with no build
+// tools required.
+// ============================================================================
 
 var Module = (() => {
   var _scriptDir = typeof document !== 'undefined' && document.currentScript ? document.currentScript.src : undefined;
