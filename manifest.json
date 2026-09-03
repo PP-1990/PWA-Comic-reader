@@ -1,8 +1,8 @@
 {
   "name": "CBZ Comic Reader",
   "short_name": "Comic Reader",
-  "description": "Read CBZ/ZIP comic archives entirely on-device.",
-  "start_url": "./Creader.html",
+  "description": "Read CBZ/CBR comic archives entirely on-device.",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",

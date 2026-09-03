@@ -1,7 +1,7 @@
-const CACHE_NAME = "cbz-reader-v3";
+const CACHE_NAME = "cbz-reader-v4";
 
 const APP_SHELL = [
-    "./Creader.html",
+    "./index.html",
     "./manifest.json",
     "./jszip.min.js",
     "./icons/icon-192.png",
@@ -54,7 +54,7 @@ self.addEventListener("fetch", (event) => {
                 })
                 .catch(() => {
                     if (event.request.mode === "navigate") {
-                        return caches.match("./Creader.html");
+                        return caches.match("./index.html");
                     }
                 });
         })
