@@ -202,6 +202,7 @@
         width: 100%;
         height: auto;
         display: block;
+        margin: 0 auto;
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
         cursor: zoom-in;
@@ -417,10 +418,11 @@ const zoomLevelLabel = document.getElementById("zoomLevelLabel");
 let pageUrls = [];
 let currentIndex = 0;
 
-const ZOOM_MIN = 1;
+const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
+const ZOOM_DEFAULT = 1;
 const ZOOM_STEP = 0.25;
-let zoomLevel = ZOOM_MIN;
+let zoomLevel = ZOOM_DEFAULT;
 
 function applyZoom() {
     pageImage.style.width = (zoomLevel * 100) + "%";
@@ -430,8 +432,10 @@ function applyZoom() {
     pageImage.style.cursor = zoomLevel >= ZOOM_MAX ? "zoom-out" : "zoom-in";
 }
 
+// Back to the normal full-width reading size (not ZOOM_MIN, which is the
+// zoomed-OUT floor) — used on page change and as the "click to reset" action.
 function resetZoom() {
-    zoomLevel = ZOOM_MIN;
+    zoomLevel = ZOOM_DEFAULT;
     applyZoom();
     mainView.scrollLeft = 0;
 }
@@ -444,13 +448,13 @@ zoomInBtn.addEventListener("click", () => {
 zoomOutBtn.addEventListener("click", () => {
     zoomLevel = Math.max(ZOOM_MIN, +(zoomLevel - ZOOM_STEP).toFixed(2));
     applyZoom();
-    if (zoomLevel === ZOOM_MIN) mainView.scrollLeft = 0;
+    if (zoomLevel <= ZOOM_DEFAULT) mainView.scrollLeft = 0;
 });
 
 zoomLevelLabel.addEventListener("click", resetZoom);
 
 pageImage.addEventListener("dblclick", () => {
-    if (zoomLevel > ZOOM_MIN) {
+    if (zoomLevel !== ZOOM_DEFAULT) {
         resetZoom();
     } else {
         zoomLevel = 2;
