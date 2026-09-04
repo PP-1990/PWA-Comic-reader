@@ -158,57 +158,53 @@
         letter-spacing: 0.5px;
     }
 
-    /* The debug console: a small semi-transparent text box that appears
-       right below the top bar while/after a comic is loading, listing
-       what was found inside the archive. It sits in normal document flow
-       (not floating), so the reader area below it shrinks to make room
-       for it while it's visible. It's hidden (display:none) until the
-       app has something to say — see writeLog() in the <script> below.
-       position:relative so the "X" close button (#logCloseBtn) can be
-       pinned to its top-right corner; the same halftone dot texture and
-       bold black border as #controls above ties it to the same look. */
+    /* The debug console: a small semi-transparent box that appears right
+       below the top bar while/after a comic is loading, listing what was
+       found inside the archive. It sits in normal document flow (not
+       floating), so the reader area below it shrinks to make room for it
+       while it's visible. It's hidden (display:none) until the app has
+       something to say — see writeLog() in the <script> below. This outer
+       div is "the whole console" — it's what the header's "x" button
+       collapses (hides) — and holds the comic-style halftone texture and
+       bold black border; #logHeader and #logText inside it (below) are
+       just its two stacked rows (button row, then text row). */
     #log {
         flex-shrink: 0;
-        position: relative;
         width: 90%;
         max-width: 1000px;
         margin: 10px auto;
-        padding: 6px 10px;
         background:
             radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1.5px) 0 0 / 8px 8px,
             rgba(17, 17, 17, 0.45);
         backdrop-filter: blur(3px);
-        color: #8bc34a;
-        font-size: 11px;
-        white-space: pre-wrap;
         border: 2px solid #000;
         border-radius: 6px;
         display: none;
-        max-height: 50px;
-        overflow-y: auto;
+        overflow: hidden;
     }
 
-    /* The actual log text, as its own element inside #log — kept separate
-       from the close button so writing new log lines (which replaces this
-       element's text content) can never accidentally wipe the button out. */
-    #logText {
-        padding-right: 18px;
+    /* A thin strip along the top of the console, holding only the "x"
+       button — kept as its own row (rather than floated over the log
+       text) so it never overlaps/obscures the text as it scrolls. */
+    #logHeader {
+        display: flex;
+        justify-content: flex-end;
+        padding: 3px 6px;
+        background: rgba(0, 0, 0, 0.25);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    /* The small "×" button in the console's top-right corner that hides
-       it — see the click listener on logCloseBtn in the <script> below. */
+    /* The small "×" button that hides the whole console (#log) — see the
+       click listener on logCloseBtn in the <script> below. */
     #logCloseBtn {
-        position: absolute;
-        top: 4px;
-        right: 4px;
-        width: 16px;
-        height: 16px;
+        width: 15px;
+        height: 15px;
         padding: 0;
         border: 1px solid #ffd54f;
         border-radius: 50%;
         background: rgba(0, 0, 0, 0.5);
         color: #ffd54f;
-        font-size: 11px;
+        font-size: 10px;
         line-height: 1;
         display: flex;
         align-items: center;
@@ -218,6 +214,16 @@
 
     #logCloseBtn:hover {
         background: rgba(0, 0, 0, 0.8);
+    }
+
+    /* The actual log text, below the header row. */
+    #logText {
+        padding: 4px 10px 6px;
+        color: #8bc34a;
+        font-size: 11px;
+        white-space: pre-wrap;
+        max-height: 50px;
+        overflow-y: auto;
     }
 
     /* The main content area below the top bar/console: it lays the
@@ -535,7 +541,9 @@
      writeLog() every time you open a file. The "x" button lets you
      collapse it manually — see logCloseBtn in the <script> below. -->
 <div id="log">
-    <button id="logCloseBtn" aria-label="Collapse console" title="Collapse console">&times;</button>
+    <div id="logHeader">
+        <button id="logCloseBtn" aria-label="Collapse console" title="Collapse console">&times;</button>
+    </div>
     <div id="logText"></div>
 </div>
 
