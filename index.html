@@ -129,24 +129,33 @@
 
     /* The dark bar fixed at the very top of the page, containing the
        "Choose File" button and the small status text next to it (e.g.
-       "12 pages loaded"). */
+       "12 pages loaded"). The radial-gradient dot pattern is a classic
+       print-comic "halftone" texture faked with pure CSS (no image file
+       needed), and the thick black bottom border reads like a comic
+       panel edge. */
     #controls {
         flex-shrink: 0;
-        height: 56px;
+        height: 44px;
         display: flex;
         align-items: center;
         justify-content: center;
         z-index: 100;
-        background: #222;
+        background-color: #222;
+        background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1.5px);
+        background-size: 8px 8px;
         padding: 0 15px;
         text-align: center;
+        border-bottom: 3px solid #000;
         box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
 
-    /* The small yellow status text next to the "Choose File" button. */
+    /* The small yellow status text next to the "Choose File" button —
+       bold and letter-spaced for a comic-caption feel. */
     .status {
         margin-left: 10px;
         color: #ffd54f;
+        font-weight: bold;
+        letter-spacing: 0.5px;
     }
 
     /* The debug console: a small semi-transparent text box that appears
@@ -154,22 +163,61 @@
        what was found inside the archive. It sits in normal document flow
        (not floating), so the reader area below it shrinks to make room
        for it while it's visible. It's hidden (display:none) until the
-       app has something to say — see writeLog() in the <script> below. */
+       app has something to say — see writeLog() in the <script> below.
+       position:relative so the "X" close button (#logCloseBtn) can be
+       pinned to its top-right corner; the same halftone dot texture and
+       bold black border as #controls above ties it to the same look. */
     #log {
         flex-shrink: 0;
+        position: relative;
         width: 90%;
         max-width: 1000px;
         margin: 10px auto;
         padding: 6px 10px;
-        background: rgba(17, 17, 17, 0.45);
+        background:
+            radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1.5px) 0 0 / 8px 8px,
+            rgba(17, 17, 17, 0.45);
         backdrop-filter: blur(3px);
         color: #8bc34a;
         font-size: 11px;
         white-space: pre-wrap;
+        border: 2px solid #000;
         border-radius: 6px;
         display: none;
-        max-height: 70px;
+        max-height: 50px;
         overflow-y: auto;
+    }
+
+    /* The actual log text, as its own element inside #log — kept separate
+       from the close button so writing new log lines (which replaces this
+       element's text content) can never accidentally wipe the button out. */
+    #logText {
+        padding-right: 18px;
+    }
+
+    /* The small "×" button in the console's top-right corner that hides
+       it — see the click listener on logCloseBtn in the <script> below. */
+    #logCloseBtn {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        border: 1px solid #ffd54f;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.5);
+        color: #ffd54f;
+        font-size: 11px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+    }
+
+    #logCloseBtn:hover {
+        background: rgba(0, 0, 0, 0.8);
     }
 
     /* The main content area below the top bar/console: it lays the
@@ -296,7 +344,7 @@
        behind these buttons. */
     #zoomControls {
         position: fixed;
-        top: 66px;
+        top: 54px;
         right: 14px;
         display: flex;
         align-items: center;
@@ -484,8 +532,12 @@
 </div>
 
 <!-- The debug console box. Starts empty/hidden; filled in and shown by
-     writeLog() every time you open a file. -->
-<div id="log"></div>
+     writeLog() every time you open a file. The "x" button lets you
+     collapse it manually — see logCloseBtn in the <script> below. -->
+<div id="log">
+    <button id="logCloseBtn" aria-label="Collapse console" title="Collapse console">&times;</button>
+    <div id="logText"></div>
+</div>
 
 <!-- The main reader area: thumbnail sidebar + page viewer, side by side
      (or stacked, on mobile — see the @media rule above). -->
@@ -530,6 +582,8 @@
 const fileInput = document.getElementById("fileInput");
 const status = document.getElementById("status");
 const log = document.getElementById("log");
+const logText = document.getElementById("logText");
+const logCloseBtn = document.getElementById("logCloseBtn");
 const sidebar = document.getElementById("sidebar");
 const sidebarPrev = document.getElementById("sidebarPrev");
 const sidebarNext = document.getElementById("sidebarNext");
@@ -638,11 +692,24 @@ sidebarNext.addEventListener("click", () => {
 // is called throughout the file below and is your best troubleshooting
 // tool — if a comic won't open, this is usually the first place to look
 // (or press F12 to see the same messages, plus any red error text).
+// Skips re-showing the box if the user has manually collapsed it with the
+// "x" button (see logCollapsed/logCloseBtn below) — new lines still get
+// added underneath, in case it's reopened later.
+let logCollapsed = false;
+
 function writeLog(text) {
-    log.style.display = "block";
-    log.textContent += text + "\n";
+    if (!logCollapsed) log.style.display = "block";
+    logText.textContent += text + "\n";
     console.log(text);
 }
+
+// The "x" button: hides the console box until the next file is opened
+// (see the fileInput "change" handler further down, which resets
+// logCollapsed back to false for each new file).
+logCloseBtn.addEventListener("click", () => {
+    logCollapsed = true;
+    log.style.display = "none";
+});
 
 // ----------------------------------------------------------------------
 // MEMORY CLEANUP: releasing the previous comic's page images.
@@ -847,7 +914,8 @@ fileInput.addEventListener("change", async (event) => {
     zoomControls.hidden = true;
     emptyState.hidden = false;
     emptyState.textContent = "Loading...";
-    log.textContent = "";
+    logText.textContent = "";
+    logCollapsed = false; // always show the console fresh for a newly-opened file
     status.textContent = "Loading...";
 
     try {
