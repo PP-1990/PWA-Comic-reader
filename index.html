@@ -454,6 +454,14 @@
        thumbnails above the page, with tap arrows on both ends, since a
        tall side column doesn't work on a narrow screen. */
     @media (max-width: 600px) {
+        /* The "N pages loaded" status text next to "Choose File" was
+           overflowing the top bar on narrow screens at its normal size —
+           shrink it just on mobile, where horizontal space next to the
+           file button is tight. */
+        .status {
+            font-size: 12px;
+        }
+
         /* Stack the filmstrip above the page instead of beside it. */
         #reader {
             flex-direction: column;
