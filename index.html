@@ -645,7 +645,10 @@ function applyZoom() {
 }
 
 // Back to the normal full-width reading size (not ZOOM_MIN, which is the
-// zoomed-OUT floor) — used on page change and as the "click to reset" action.
+// zoomed-OUT floor) — used when opening a new file and as the "click to
+// reset" action. Deliberately NOT called when just flipping between pages
+// of the same file — see showPage() below, which keeps whatever zoom
+// level you'd set instead.
 function resetZoom() {
     zoomLevel = ZOOM_DEFAULT;
     applyZoom();
@@ -752,7 +755,11 @@ function showPage(index) {
     currentIndex = Math.max(0, Math.min(index, pageUrls.length - 1));
 
     pageImage.src = pageUrls[currentIndex];
-    resetZoom(); // always start a newly-opened page at normal size
+    // Every page starts scrolled to the top-left, but keeps whatever zoom
+    // level you'd set — zoom only resets when you open a brand new file
+    // (see the "resetZoom()" call in the fileInput handler below).
+    mainView.scrollTop = 0;
+    mainView.scrollLeft = 0;
     pageIndicator.textContent = `${currentIndex + 1} / ${pageUrls.length}`;
     prevBtn.disabled = currentIndex === 0;
     nextBtn.disabled = currentIndex === pageUrls.length - 1;
@@ -1005,6 +1012,7 @@ fileInput.addEventListener("change", async (event) => {
         pageImage.hidden = false;
         pageNav.hidden = false;
         zoomControls.hidden = false;
+        resetZoom(); // start each newly-opened file at the normal 100% size
         showPage(0);
 
         status.textContent = `${pages.length} pages loaded`;

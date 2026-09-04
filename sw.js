@@ -23,7 +23,7 @@
 // the whole point of this file is to avoid re-downloading things.
 // ============================================================================
 
-const CACHE_NAME = "cbz-reader-v15";
+const CACHE_NAME = "cbz-reader-v16";
 
 // Every file the app needs in order to run at all. These all get
 // downloaded and saved to the local cache up front (see "install" below),
