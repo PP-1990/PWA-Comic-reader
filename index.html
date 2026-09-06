@@ -74,6 +74,20 @@
         box-sizing: border-box;
     }
 
+    /* Without this, the HTML `hidden` attribute (used throughout the
+       JavaScript below, e.g. pageCanvas.hidden = true) silently stops
+       working on any element that also has its own `display` set in CSS
+       — which several elements here do (.page-image sets display:block,
+       #zoomControls and #pageNav set display:flex). The browser's own
+       default styling for `hidden` is very low-priority, so a plain CSS
+       rule setting `display` on that same element overrides it even
+       though `hidden` looks like it should win — a well-known CSS
+       footgun. This makes `hidden` always win instead, restoring the
+       behavior the JavaScript below actually expects. */
+    [hidden] {
+        display: none !important;
+    }
+
     /* Lets the page fill the browser window's full height, which the
        flexbox layout further down needs in order to stretch and fill
        the screen correctly. */
