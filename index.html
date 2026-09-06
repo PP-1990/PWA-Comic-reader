@@ -839,6 +839,50 @@ const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a step's edges aren't flus
 let guidedViewEnabled = false;
 let currentStepIndex = 0;
 
+// The canvas's natural (untransformed) on-screen box, cached so frameRect()
+// never has to measure it by touching the live transform mid-transition —
+// see captureNaturalBox() below for why that matters.
+let cachedNaturalBox = null;
+
+// The three numbers that make up the canvas's current Guided View
+// transform, kept as their own variables (rather than re-parsing them back
+// out of the `transform` CSS string) so both frameRect() and the manual
+// drag-to-pan/wheel-to-pan handlers further down can read and adjust them
+// directly through the same applyGuidedTransform() helper.
+let guidedTranslateX = 0;
+let guidedTranslateY = 0;
+let guidedScale = 1;
+
+function applyGuidedTransform() {
+    pageCanvas.style.transform = `translate(${guidedTranslateX}px, ${guidedTranslateY}px) scale(${guidedScale})`;
+}
+
+// Measures the canvas's natural (untransformed) on-screen box and caches
+// it for frameRect() to use. This briefly swaps the transform to "none",
+// forces layout so that's actually applied, measures, then swaps it right
+// back — all synchronously, so nothing ever gets painted in between and
+// there's no visible flicker, AS LONG AS this only runs at a moment when
+// the canvas isn't in the middle of visibly transitioning: right after a
+// new page image loads (before that page has been framed yet), or while
+// the fade overlay is fully opaque. Calling it mid-transition would be the
+// bug this replaced — forcing a reflow while "none" is applied makes the
+// browser treat "none" as a real, completed state, so if a transition
+// applied a NEW transform right after that point, it would visibly animate
+// from "none" (the whole, unscaled page) instead of from wherever it
+// actually was on screen a moment ago. Restoring the old transform here
+// with its own forced reflow — before returning — avoids that trap.
+function captureNaturalBox() {
+    const previousTransition = pageCanvas.style.transition;
+    const previousTransform = pageCanvas.style.transform;
+    pageCanvas.style.transition = "none";
+    pageCanvas.style.transform = "none";
+    void pageCanvas.offsetHeight;
+    cachedNaturalBox = pageCanvas.getBoundingClientRect();
+    pageCanvas.style.transform = previousTransform;
+    void pageCanvas.offsetHeight;
+    pageCanvas.style.transition = previousTransition;
+}
+
 // The four fixed viewing rectangles for the current page, in the page's
 // own full-resolution pixel coordinates: the whole page, then its top,
 // middle, and bottom thirds. Cheap to compute (just arithmetic on the
@@ -867,26 +911,17 @@ function getStepsForCurrentPage() {
 // transitions can't touch at all, and jump instantly no matter what.
 //
 // The math: we want the rectangle's center point, in on-screen pixels, to
-// land exactly at #mainView's center. We measure the canvas's own
-// natural (untransformed) on-screen box first — transform-origin:0 0
-// means a local point at (px, py) in that natural box ends up on screen
-// at `naturalBoxTopLeft + translate + scale * (px, py)`, so the needed
-// translate is just solved for algebraically from that.
-//
-// Measuring "untransformed" requires briefly turning the transition off
-// before reading getBoundingClientRect() — otherwise, if a transform
-// transition from a previous step is still animating, we'd measure a
-// mid-animation box instead of the true natural one. Turning the
-// transition off and back on within the same synchronous block of code
-// never actually paints the in-between state, so there's no visible
-// flicker from this.
+// land exactly at #mainView's center. This uses the canvas's cached
+// natural (untransformed) on-screen box — see captureNaturalBox() above —
+// so that calling this mid-transition (e.g. stepping from one third of
+// the page straight to another) never has to touch the live transform
+// itself: transform-origin:0 0 means a local point at (px, py) in that
+// natural box ends up on screen at
+// `naturalBoxTopLeft + translate + scale * (px, py)`, so the needed
+// translate is just solved for algebraically from that, using whichever
+// transform was already on screen as the animation's starting point.
 function frameRect(rectX, rectY, rectWidth, rectHeight) {
-    const previousTransition = pageCanvas.style.transition;
-    pageCanvas.style.transition = "none";
-    pageCanvas.style.transform = "none";
-    void pageCanvas.offsetHeight; // force layout to actually apply the above before we measure
-    const naturalBox = pageCanvas.getBoundingClientRect();
-    pageCanvas.style.transition = previousTransition;
+    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
 
     const mainViewBox = mainView.getBoundingClientRect();
     const naturalScale = naturalBox.width / pageCanvas.width;
@@ -902,18 +937,82 @@ function frameRect(rectX, rectY, rectWidth, rectHeight) {
     const targetScreenX = mainViewBox.left + mainViewBox.width / 2;
     const targetScreenY = mainViewBox.top + mainViewBox.height / 2;
 
-    const translateX = targetScreenX - naturalBox.left - transformScale * localCenterX;
-    const translateY = targetScreenY - naturalBox.top - transformScale * localCenterY;
-
-    pageCanvas.style.transform = `translate(${translateX}px, ${translateY}px) scale(${transformScale})`;
+    guidedScale = transformScale;
+    guidedTranslateX = targetScreenX - naturalBox.left - transformScale * localCenterX;
+    guidedTranslateY = targetScreenY - naturalBox.top - transformScale * localCenterY;
+    applyGuidedTransform();
 }
 
 // Undoes frameRect()'s transform, back to the normal (CSS-driven,
 // percentage-width) layout — called whenever Guided View turns off.
 function resetGuidedTransform() {
     pageCanvas.style.transform = "";
+    pageCanvas.style.touchAction = "";
     mainView.style.overflow = "";
 }
+
+// ----------------------------------------------------------------------
+// MANUAL PAN: Guided View's fixed thirds are a best guess, not real panel
+// detection (see the note above getStepsForCurrentPage()), so they won't
+// always land exactly on a panel's edges. Rather than trying to guess
+// better, this lets the reader nudge the current step's framing themselves
+// — drag/swipe with a mouse or finger, or scroll/trackpad-swipe with a
+// wheel — in any direction. It's a temporary adjustment only: moving to
+// the next/previous step or page re-frames from scratch via frameRect()
+// and overwrites it, which is the intended "reset" — there's no separate
+// undo needed, just step away and back.
+// ----------------------------------------------------------------------
+let isPanningGuidedView = false;
+let panStartX = 0;
+let panStartY = 0;
+let panStartTranslateX = 0;
+let panStartTranslateY = 0;
+
+pageCanvas.addEventListener("pointerdown", (event) => {
+    if (!guidedViewEnabled) return;
+    isPanningGuidedView = true;
+    panStartX = event.clientX;
+    panStartY = event.clientY;
+    panStartTranslateX = guidedTranslateX;
+    panStartTranslateY = guidedTranslateY;
+    pageCanvas.style.transition = "none"; // track the pointer 1:1, not eased
+    pageCanvas.style.cursor = "grabbing";
+    pageCanvas.setPointerCapture(event.pointerId);
+});
+
+pageCanvas.addEventListener("pointermove", (event) => {
+    if (!isPanningGuidedView) return;
+    guidedTranslateX = panStartTranslateX + (event.clientX - panStartX);
+    guidedTranslateY = panStartTranslateY + (event.clientY - panStartY);
+    applyGuidedTransform();
+});
+
+function endGuidedPan(event) {
+    if (!isPanningGuidedView) return;
+    isPanningGuidedView = false;
+    pageCanvas.style.transition = ""; // back to the normal eased transition for the next step move
+    pageCanvas.style.cursor = "grab";
+}
+pageCanvas.addEventListener("pointerup", endGuidedPan);
+pageCanvas.addEventListener("pointercancel", endGuidedPan);
+
+// Mouse wheel / trackpad scroll also pans, for desktop users who'd rather
+// not click-drag. Transition is disabled for the duration of active
+// scrolling (for the same 1:1-tracking reason as the drag handler above)
+// and restored a moment after scrolling stops.
+let wheelPanRestoreTimer = null;
+mainView.addEventListener("wheel", (event) => {
+    if (!guidedViewEnabled) return;
+    event.preventDefault();
+    pageCanvas.style.transition = "none";
+    guidedTranslateX -= event.deltaX;
+    guidedTranslateY -= event.deltaY;
+    applyGuidedTransform();
+    clearTimeout(wheelPanRestoreTimer);
+    wheelPanRestoreTimer = setTimeout(() => {
+        pageCanvas.style.transition = "";
+    }, 150);
+}, { passive: false });
 
 // ----------------------------------------------------------------------
 // Fade-to-black transitions, used only for Guided View's page-boundary
@@ -984,6 +1083,8 @@ async function setGuidedView(enabled) {
         mainView.style.overflow = "hidden"; // manual scrolling would fight with the transform-driven view
         mainView.scrollTop = 0;
         mainView.scrollLeft = 0;
+        pageCanvas.style.cursor = "grab"; // hints that the page can be dragged to fine-tune the framing
+        pageCanvas.style.touchAction = "none"; // let pointer events drive panning instead of the browser's own touch scrolling
         if (hasComic) showStep(0);
     } else {
         resetGuidedTransform();
@@ -1006,6 +1107,18 @@ async function setGuidedView(enabled) {
 }
 
 guidedViewBtn.addEventListener("click", () => setGuidedView(!guidedViewEnabled));
+
+// The cached natural box (see captureNaturalBox() above) depends on the
+// canvas's rendered size, which changes if the window/viewport is resized
+// (its CSS width is a percentage of #mainView). Re-measure whenever that
+// happens, and — if Guided View is showing a step right now — re-frame it
+// against the fresh measurement, so it stays correctly positioned instead
+// of drifting out of place after a resize.
+window.addEventListener("resize", () => {
+    if (pageUrls.length === 0) return;
+    captureNaturalBox();
+    if (guidedViewEnabled) showStep(currentStepIndex);
+});
 
 // ----------------------------------------------------------------------
 // DEBUG CONSOLE: the small green-text box under the top bar.
@@ -1081,6 +1194,15 @@ function showPage(index, options = {}) {
     // see the "if (!guidedViewEnabled)" block below, which runs
     // immediately instead.
     const loaded = loadPageIntoCanvas(pageUrls[currentIndex]).then(() => {
+        // Refreshes the cached natural-box measurement frameRect() relies
+        // on, now that this page's actual image (and possibly different
+        // dimensions) is drawn. Safe to do here even outside Guided View,
+        // or in the middle of a Guided View page-crossing fade: either the
+        // canvas has no transform applied yet (normal mode) or the fade
+        // overlay is fully opaque (page-crossing) — see captureNaturalBox()
+        // above for why doing this mid-transition, unhidden, would be a
+        // problem instead.
+        captureNaturalBox();
         if (guidedViewEnabled) {
             const steps = getStepsForCurrentPage();
             showStep(options.enterFromEnd ? steps.length - 1 : 0);
