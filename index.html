@@ -641,7 +641,7 @@
             <canvas id="pageCanvas" class="page-image" hidden></canvas>
         </div>
         <div id="zoomControls" hidden>
-            <button id="guidedViewBtn" aria-label="Toggle Guided View" title="Guided View: step through detected panels one at a time">&#9638;</button>
+            <button id="guidedViewBtn" aria-label="Toggle Guided View" title="Guided View: whole page, then top/middle/bottom third">&#9638;</button>
             <button id="zoomOutBtn" aria-label="Zoom out">&#8722;</button>
             <span id="zoomLevelLabel" title="Click to reset zoom">100%</span>
             <button id="zoomInBtn" aria-label="Zoom in">&#43;</button>
@@ -805,268 +805,59 @@ sidebarNext.addEventListener("click", () => {
 });
 
 // ----------------------------------------------------------------------
-// GUIDED VIEW: automatically finds comic panels on the current page (by
-// analyzing its actual pixels — there's no panel metadata in a plain
-// CBZ/CBR file) and steps through them one at a time, framing each one to
-// fill as much of the screen as possible. This is the same underlying
-// idea as Marvel Unlimited's "Smart Panels" or Kindle's "Panel View".
+// GUIDED VIEW: steps through each page in four fixed stages instead of
+// showing the whole thing at once — (1) the entire page, (2) its top
+// third, (3) its middle third, (4) its bottom third — each framed to
+// fill as much of the screen as possible.
 //
-// Because it's a visual guess rather than real authored data, it works
-// well on clean, grid-laid-out Western comics with clear white/black
-// gutters between panels, and can misfire on splash pages, panel art that
-// bleeds together with no gutter, or painterly layouts with no hard
-// edges. detectPanels() below falls back to treating the whole page as
-// one "panel" whenever it isn't confident, rather than showing a
-// nonsensical crop — so misdetection degrades to "acts like Guided View
-// is off for this page," not a broken picture.
+// This is deliberately NOT trying to detect real panel boundaries. An
+// earlier version of this feature analyzed each page's actual pixels to
+// guess where panels were (looking for gutter-colored gaps), which
+// worked well on clean grid comics but could misfire on splash pages,
+// bleeding panel art, or painterly layouts with no hard gutter — a
+// fundamentally hard, never-fully-solvable guessing problem. This
+// version trades "smart" for "always correct": a fixed, content-blind
+// stepping pattern can't misdetect anything, because it never looks at
+// the content at all. It won't always land exactly on a panel edge, but
+// it never breaks, misfires, or needs a fallback case.
 // ----------------------------------------------------------------------
 
-const PANEL_MIN_AREA_RATIO = 0.02;   // ignore specks smaller than 2% of the page
-const PANEL_ANALYSIS_MAX_DIM = 600;  // analyze a downscaled copy, for speed
-const PANEL_WHOLE_PAGE_COVERAGE = 0.85; // a single blob this big = "no real panels found"
-const PANEL_FIT_MARGIN = 0.92;       // shrink slightly so a panel's edges aren't flush against the screen edge
-const PANEL_COLOR_THRESHOLD = 40;    // how far (in R+G+B distance) a pixel can be from the gutter color and still count as "gutter"
+const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a step's edges aren't flush against the screen edge
 
 let guidedViewEnabled = false;
-let pagePanelsCache = [];   // panels[] per page index, computed lazily and reset per file
-let currentPanelIndex = 0;
+let currentStepIndex = 0;
 
-// Reads one pixel out of a Canvas ImageData's flat RGBA byte array.
-function pixelAt(data, width, x, y) {
-    const i = (y * width + x) * 4;
-    return [data[i], data[i + 1], data[i + 2]];
-}
-
-// Given a list of [r,g,b] samples, returns the most common one (colors are
-// bucketed coarsely first so near-identical shades count as the same
-// color — real scans/compression noise means gutter pixels are rarely
-// pixel-perfect identical).
-function mostCommonColor(samples) {
-    const counts = new Map();
-    for (const [r, g, b] of samples) {
-        const key = (r >> 4) + "," + (g >> 4) + "," + (b >> 4);
-        counts.set(key, (counts.get(key) || 0) + 1);
-    }
-    let bestKey = null;
-    let bestCount = -1;
-    for (const [key, count] of counts) {
-        if (count > bestCount) {
-            bestCount = count;
-            bestKey = key;
-        }
-    }
-    const match = samples.find(([r, g, b]) => (r >> 4) + "," + (g >> 4) + "," + (b >> 4) === bestKey);
-    return match || [255, 255, 255];
-}
-
-// Arranges detected panel boxes into reading order: top-to-bottom by row,
-// then left-to-right within each row. Rows are found by grouping panels
-// whose vertical spans overlap by a good margin, rather than assuming a
-// perfectly aligned grid (real comic layouts are rarely pixel-perfect).
-function sortPanelsIntoReadingOrder(panels) {
-    const byTop = [...panels].sort((a, b) => a.y - b.y);
-    const rows = [];
-
-    for (const panel of byTop) {
-        let row = rows.find(r => {
-            const overlapStart = Math.max(panel.y, r.y);
-            const overlapEnd = Math.min(panel.y + panel.height, r.y + r.height);
-            return (overlapEnd - overlapStart) > 0.4 * Math.min(panel.height, r.height);
-        });
-        if (!row) {
-            row = { y: panel.y, height: panel.height, panels: [] };
-            rows.push(row);
-        }
-        row.y = Math.min(row.y, panel.y);
-        row.height = Math.max(row.height, (panel.y + panel.height) - row.y);
-        row.panels.push(panel);
-    }
-
-    rows.sort((a, b) => a.y - b.y);
-    const ordered = [];
-    for (const row of rows) {
-        row.panels.sort((a, b) => a.x - b.x);
-        ordered.push(...row.panels);
-    }
-    return ordered;
-}
-
-// The core panel-detection algorithm. Takes the main <canvas> (already
-// holding the current page's full-resolution image) and returns an array
-// of { x, y, width, height } rectangles, in that same full-resolution
-// pixel coordinate space, sorted in reading order. Always returns at
-// least one rectangle — see the fallback-to-whole-page logic near the end.
-function detectPanels(sourceCanvas) {
-    const naturalWidth = sourceCanvas.width;
-    const naturalHeight = sourceCanvas.height;
-    const wholePage = { x: 0, y: 0, width: naturalWidth, height: naturalHeight };
-
-    // 1. Draw a small downscaled copy for fast pixel analysis — panel
-    // edges don't need full resolution to detect.
-    const scale = Math.min(1, PANEL_ANALYSIS_MAX_DIM / Math.max(naturalWidth, naturalHeight));
-    const aw = Math.max(1, Math.round(naturalWidth * scale));
-    const ah = Math.max(1, Math.round(naturalHeight * scale));
-
-    const analysisCanvas = document.createElement("canvas");
-    analysisCanvas.width = aw;
-    analysisCanvas.height = ah;
-    const actx = analysisCanvas.getContext("2d", { willReadFrequently: true });
-    actx.drawImage(sourceCanvas, 0, 0, aw, ah);
-
-    let imageData;
-    try {
-        imageData = actx.getImageData(0, 0, aw, ah);
-    } catch (err) {
-        // Extremely unlikely (would mean a tainted canvas), but if pixel
-        // access fails for any reason, just show the whole page instead
-        // of breaking the reader.
-        console.error("Guided View: panel detection failed, showing whole page.", err);
-        return [wholePage];
-    }
-    const data = imageData.data;
-
-    // 2. Guess the gutter/background color by sampling pixels around the
-    // page's outer edge (gutters almost always touch the page border).
-    const borderSamples = [];
-    const xStep = Math.max(1, Math.floor(aw / 40));
-    const yStep = Math.max(1, Math.floor(ah / 40));
-    for (let x = 0; x < aw; x += xStep) {
-        borderSamples.push(pixelAt(data, aw, x, 0));
-        borderSamples.push(pixelAt(data, aw, x, ah - 1));
-    }
-    for (let y = 0; y < ah; y += yStep) {
-        borderSamples.push(pixelAt(data, aw, 0, y));
-        borderSamples.push(pixelAt(data, aw, aw - 1, y));
-    }
-    const gutterColor = mostCommonColor(borderSamples);
-
-    // 3. Build a black-and-white "is this pixel part of a panel's content,
-    // or part of the gutter?" mask by color distance from that gutter color.
-    const pixelCount = aw * ah;
-    const mask = new Uint8Array(pixelCount);
-    for (let i = 0; i < pixelCount; i++) {
-        const o = i * 4;
-        const dist = Math.abs(data[o] - gutterColor[0]) +
-                     Math.abs(data[o + 1] - gutterColor[1]) +
-                     Math.abs(data[o + 2] - gutterColor[2]);
-        mask[i] = dist > PANEL_COLOR_THRESHOLD ? 1 : 0;
-    }
-
-    // 4. Connected-component labeling: flood-fill each unvisited "content"
-    // pixel to find the full blob it belongs to, tracking its bounding
-    // box and size as we go. Uses an explicit stack (not recursion) since
-    // a page-sized flood fill would blow the call stack otherwise.
-    const visited = new Uint8Array(pixelCount);
-    const stackX = new Int32Array(pixelCount);
-    const stackY = new Int32Array(pixelCount);
-    const components = [];
-
-    for (let y = 0; y < ah; y++) {
-        for (let x = 0; x < aw; x++) {
-            const startIdx = y * aw + x;
-            if (mask[startIdx] === 0 || visited[startIdx]) continue;
-
-            let minX = x, maxX = x, minY = y, maxY = y, count = 0;
-            let sp = 0;
-            stackX[sp] = x;
-            stackY[sp] = y;
-            sp++;
-            visited[startIdx] = 1;
-
-            while (sp > 0) {
-                sp--;
-                const cx = stackX[sp];
-                const cy = stackY[sp];
-                count++;
-                if (cx < minX) minX = cx;
-                if (cx > maxX) maxX = cx;
-                if (cy < minY) minY = cy;
-                if (cy > maxY) maxY = cy;
-
-                // 4-directional neighbors (up/down/left/right).
-                if (cx > 0) {
-                    const idx = cy * aw + (cx - 1);
-                    if (mask[idx] === 1 && !visited[idx]) {
-                        visited[idx] = 1;
-                        stackX[sp] = cx - 1; stackY[sp] = cy; sp++;
-                    }
-                }
-                if (cx < aw - 1) {
-                    const idx = cy * aw + (cx + 1);
-                    if (mask[idx] === 1 && !visited[idx]) {
-                        visited[idx] = 1;
-                        stackX[sp] = cx + 1; stackY[sp] = cy; sp++;
-                    }
-                }
-                if (cy > 0) {
-                    const idx = (cy - 1) * aw + cx;
-                    if (mask[idx] === 1 && !visited[idx]) {
-                        visited[idx] = 1;
-                        stackX[sp] = cx; stackY[sp] = cy - 1; sp++;
-                    }
-                }
-                if (cy < ah - 1) {
-                    const idx = (cy + 1) * aw + cx;
-                    if (mask[idx] === 1 && !visited[idx]) {
-                        visited[idx] = 1;
-                        stackX[sp] = cx; stackY[sp] = cy + 1; sp++;
-                    }
-                }
-            }
-
-            components.push({ minX, minY, maxX, maxY, count });
-        }
-    }
-
-    // 5. Drop tiny specks (text-bubble tails, dust, compression noise),
-    // and scale surviving boxes back up to full-resolution coordinates.
-    const minArea = pixelCount * PANEL_MIN_AREA_RATIO;
-    const panels = components
-        .filter(c => c.count >= minArea)
-        .map(c => ({
-            x: c.minX / scale,
-            y: c.minY / scale,
-            width: (c.maxX - c.minX + 1) / scale,
-            height: (c.maxY - c.minY + 1) / scale
-        }));
-
-    // 6. Fall back to "one panel = the whole page" if detection didn't
-    // find anything usable, or found a single blob that's basically the
-    // entire page (a splash page, or a page where panels bleed together
-    // with no visible gutter — either way, there's nothing meaningful to
-    // step through).
-    if (panels.length === 0) return [wholePage];
-    if (panels.length === 1) {
-        const coverage = (panels[0].width * panels[0].height) / (naturalWidth * naturalHeight);
-        if (coverage > PANEL_WHOLE_PAGE_COVERAGE) return [wholePage];
-    }
-
-    return sortPanelsIntoReadingOrder(panels);
-}
-
-// Returns (computing and caching on first request) the panel list for
-// whichever page is currently displayed.
-function getPanelsForCurrentPage() {
-    if (!pagePanelsCache[currentIndex]) {
-        pagePanelsCache[currentIndex] = detectPanels(pageCanvas);
-    }
-    return pagePanelsCache[currentIndex];
+// The four fixed viewing rectangles for the current page, in the page's
+// own full-resolution pixel coordinates: the whole page, then its top,
+// middle, and bottom thirds. Cheap to compute (just arithmetic on the
+// canvas's dimensions), so unlike real panel detection this doesn't need
+// to be cached.
+function getStepsForCurrentPage() {
+    const width = pageCanvas.width;
+    const height = pageCanvas.height;
+    const thirdHeight = height / 3;
+    return [
+        { x: 0, y: 0, width, height },                                            // whole page
+        { x: 0, y: 0, width, height: thirdHeight },                                // top third
+        { x: 0, y: thirdHeight, width, height: thirdHeight },                      // middle third
+        { x: 0, y: thirdHeight * 2, width, height: height - thirdHeight * 2 }      // bottom third (subtraction avoids a rounding gap at the very edge)
+    ];
 }
 
 // Scales and positions the page so that the given rectangle (in the
 // page's full-resolution pixel coordinates) fills as much of the viewport
-// as possible while staying fully on screen — the "frame this panel" step.
+// as possible while staying fully on screen — the "frame this step" step.
 //
 // This can't just be "resize the canvas, then set #mainView.scrollLeft/
 // scrollTop", the way manual zoom does — a scroll container can only
-// scroll to positions within its actual overflow, and a panel is very
-// often SHORTER or NARROWER (relative to its own dimension) than the
-// viewport once scaled to fit the other dimension, meaning the resized
-// canvas ends up smaller than the viewport in that axis with nothing to
-// scroll through at all (scrollLeft/scrollTop silently clamp to 0). A
-// panel near the left edge of a page like that would try to scroll to a
-// negative position and just get stuck at 0 instead — still technically
-// on screen, but not actually centered the way it should be.
+// scroll to positions within its actual overflow, and a step's rectangle
+// is very often SHORTER or NARROWER (relative to its own dimension) than
+// the viewport once scaled to fit the other dimension, meaning the
+// resized canvas ends up smaller than the viewport in that axis with
+// nothing to scroll through at all (scrollLeft/scrollTop silently clamp
+// to 0). A step near the left edge of a page like that would try to
+// scroll to a negative position and just get stuck at 0 instead — still
+// technically on screen, but not actually centered the way it should be.
 //
 // The fix: #pageStage (the canvas's wrapper — see its own comment in the
 // <style> above) is padded out to canvas-size-plus-one-full-viewport on
@@ -1078,7 +869,7 @@ function getPanelsForCurrentPage() {
 function frameRect(rectX, rectY, rectWidth, rectHeight) {
     const viewportWidth = mainView.clientWidth;
     const viewportHeight = mainView.clientHeight;
-    const scale = Math.min(viewportWidth / rectWidth, viewportHeight / rectHeight) * PANEL_FIT_MARGIN;
+    const scale = Math.min(viewportWidth / rectWidth, viewportHeight / rectHeight) * GUIDED_FIT_MARGIN;
 
     const canvasWidth = pageCanvas.width * scale;
     const canvasHeight = pageCanvas.height * scale;
@@ -1109,19 +900,19 @@ function resetPageStage() {
     pageCanvas.style.margin = "";
 }
 
-// Frames the panel at the given index within the current page's panel list,
-// and updates the ‹ › buttons to reflect Guided View's boundary: unlike
+// Frames the step at the given index (0-3) for the current page, and
+// updates the ‹ › buttons to reflect Guided View's boundary: unlike
 // normal mode (first/last PAGE), Guided View should only disable them at
-// the very first/last PANEL of the very first/last page — plain page
-// boundaries don't apply while there are still panels left to step
-// through on the current page.
-function showPanel(index) {
-    const panels = getPanelsForCurrentPage();
-    currentPanelIndex = Math.max(0, Math.min(index, panels.length - 1));
-    const panel = panels[currentPanelIndex];
-    frameRect(panel.x, panel.y, panel.width, panel.height);
-    prevBtn.disabled = currentIndex === 0 && currentPanelIndex === 0;
-    nextBtn.disabled = currentIndex === pageUrls.length - 1 && currentPanelIndex === panels.length - 1;
+// the very first/last STEP of the very first/last page — plain page
+// boundaries don't apply while there are still steps left on the current
+// page.
+function showStep(index) {
+    const steps = getStepsForCurrentPage();
+    currentStepIndex = Math.max(0, Math.min(index, steps.length - 1));
+    const step = steps[currentStepIndex];
+    frameRect(step.x, step.y, step.width, step.height);
+    prevBtn.disabled = currentIndex === 0 && currentStepIndex === 0;
+    nextBtn.disabled = currentIndex === pageUrls.length - 1 && currentStepIndex === steps.length - 1;
 }
 
 // Turns Guided View on/off. Manual zoom and Guided View both drive the
@@ -1135,14 +926,14 @@ function setGuidedView(enabled) {
     zoomInBtn.disabled = enabled || zoomLevel >= ZOOM_MAX;
 
     if (enabled) {
-        currentPanelIndex = 0;
-        if (pageUrls.length > 0) showPanel(0);
+        currentStepIndex = 0;
+        if (pageUrls.length > 0) showStep(0);
     } else {
         resetPageStage();
         applyZoom();
-        // Recompute against plain page boundaries — showPanel() may have
-        // last set these based on panel position (e.g. "not disabled"
-        // because we weren't at the first/last panel of page 1), which
+        // Recompute against plain page boundaries — showStep() may have
+        // last set these based on step position (e.g. "not disabled"
+        // because we weren't at the first/last step of page 1), which
         // can disagree with the correct normal-mode answer for the same
         // page (e.g. "should be disabled, this IS page 1").
         if (pageUrls.length > 0) {
@@ -1217,16 +1008,16 @@ function showPage(index, options = {}) {
     currentIndex = Math.max(0, Math.min(index, pageUrls.length - 1));
 
     // Drawing the image onto the canvas happens async (the browser has to
-    // fetch/decode it first) — Guided View's panel framing needs the
-    // canvas's actual pixel content to do its detection/scaling math, so
-    // it waits for that here. Manual-zoom mode doesn't need to wait,
-    // since a CSS percentage width doesn't depend on the image being
-    // ready yet — see the "if (!guidedViewEnabled)" block below, which
-    // runs immediately instead.
+    // fetch/decode it first) — Guided View's step framing needs the
+    // canvas's actual pixel dimensions to do its scaling math, so it
+    // waits for that here. Manual-zoom mode doesn't need to wait, since a
+    // CSS percentage width doesn't depend on the image being ready yet —
+    // see the "if (!guidedViewEnabled)" block below, which runs
+    // immediately instead.
     loadPageIntoCanvas(pageUrls[currentIndex]).then(() => {
         if (guidedViewEnabled) {
-            const panels = getPanelsForCurrentPage();
-            showPanel(options.enterFromEnd ? panels.length - 1 : 0);
+            const steps = getStepsForCurrentPage();
+            showStep(options.enterFromEnd ? steps.length - 1 : 0);
         }
     }).catch(() => {
         // Error already logged inside loadPageIntoCanvas().
@@ -1240,11 +1031,11 @@ function showPage(index, options = {}) {
         applyZoom();
         mainView.scrollTop = 0;
         mainView.scrollLeft = 0;
-        // In Guided View this is set inside showPanel() instead (called
+        // In Guided View this is set inside showStep() instead (called
         // from the loadPageIntoCanvas().then() above), since it needs to
-        // know the new page's panel count first — a plain page-boundary
+        // know the new page's step boundary first — a plain page-boundary
         // check here would wrongly disable "prev" the moment you land
-        // back on page 1 even with panels still left to step through.
+        // back on page 1 even with steps still left to go through.
         prevBtn.disabled = currentIndex === 0;
         nextBtn.disabled = currentIndex === pageUrls.length - 1;
     }
@@ -1265,13 +1056,13 @@ function showPage(index, options = {}) {
     }
 }
 
-// One step backward: the previous panel if Guided View is on and there is
-// one, otherwise the previous page (entering at its last panel, if Guided
-// View is on). Shared by the ‹ button, the ← arrow key, and (via goNext's
-// mirror image) consistent boundary behavior at the very first page/panel.
+// One step backward: the previous Guided View step if there is one,
+// otherwise the previous page (entering at its last step, if Guided View
+// is on). Shared by the ‹ button, the ← arrow key, and (via goNext's
+// mirror image) consistent boundary behavior at the very first page/step.
 function goPrev() {
-    if (guidedViewEnabled && currentPanelIndex > 0) {
-        showPanel(currentPanelIndex - 1);
+    if (guidedViewEnabled && currentStepIndex > 0) {
+        showStep(currentStepIndex - 1);
         return;
     }
     if (currentIndex > 0) {
@@ -1279,14 +1070,13 @@ function goPrev() {
     }
 }
 
-// One step forward: the next panel if Guided View is on and there is one,
-// otherwise the next page (entering at its first panel, if Guided View is
-// on).
+// One step forward: the next Guided View step if there is one, otherwise
+// the next page (entering at its first step, if Guided View is on).
 function goNext() {
     if (guidedViewEnabled) {
-        const panels = getPanelsForCurrentPage();
-        if (currentPanelIndex < panels.length - 1) {
-            showPanel(currentPanelIndex + 1);
+        const steps = getStepsForCurrentPage();
+        if (currentStepIndex < steps.length - 1) {
+            showStep(currentStepIndex + 1);
             return;
         }
     }
@@ -1299,8 +1089,8 @@ function goNext() {
 prevBtn.addEventListener("click", goPrev);
 nextBtn.addEventListener("click", goNext);
 
-// Lets you flip pages (or panels, in Guided View) with the keyboard's
-// ← / → arrow keys, as an alternative to clicking the on-screen buttons.
+// Lets you flip pages (or Guided View steps) with the keyboard's ← / →
+// arrow keys, as an alternative to clicking the on-screen buttons.
 document.addEventListener("keydown", (event) => {
     if (pageUrls.length === 0) return;
     if (event.key === "ArrowLeft") goPrev();
@@ -1442,7 +1232,6 @@ fileInput.addEventListener("change", async (event) => {
     logText.textContent = "";
     logCollapsed = false; // always show the console fresh for a newly-opened file
     status.textContent = "Loading...";
-    pagePanelsCache = []; // old file's cached panels don't apply to the new one
     setGuidedView(false); // start every newly-opened file in normal (non-Guided) view
 
     try {
