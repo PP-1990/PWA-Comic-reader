@@ -353,28 +353,18 @@
 
     /* Wraps the page canvas. In normal/zoom mode this is just a
        full-width, auto-sized pass-through (no visual effect of its own).
-       In Guided View, frameRect() in the <script> gives this an explicit
-       pixel size (canvas size padded by a full viewport on every side)
-       and absolutely-positions the canvas inside it — see frameRect()'s
-       own comment for why plain scrollLeft/scrollTop isn't enough on its
-       own to center an arbitrary panel. position:relative here is what
-       makes the canvas's position:absolute (set only in Guided View)
-       measure from this element instead of from #mainView or the page. */
-    #pageStage {
-        position: relative;
-        margin: 0 auto;
-    }
-
-    /* Page fills the full available width by default; height follows
-       naturally from the image's own aspect ratio, and #mainView scrolls
-       for whatever doesn't fit. Zooming and Guided View (see #zoomControls)
-       both work by changing this element's inline CSS width (percentage
-       for manual zoom, exact pixels for Guided View's panel framing) —
-       margin:0 auto keeps it horizontally centered whenever it's narrower
-       than the container. This used to be an <img>; it's a <canvas> now
-       so Guided View's panel detection can read the page's actual pixels
-       (getImageData) — canvas sizing/scaling behaves the same as img did
-       for everything else here. */
+       Guided View animates a CSS transform on the image directly (see
+       frameRect() in the <script>), so it needs no special sizing here —
+       width:100% + height:auto is the same "natural" layout used for
+       normal reading and manual zoom; Guided View's pan/zoom is purely a
+       visual overlay on top of that, via `transform`, which — unlike
+       scrollLeft/scrollTop — is a real CSS property the browser can
+       animate smoothly. transform-origin:0 0 makes the transform math in
+       frameRect() (which treats the image's own top-left corner as the
+       zero point) match what actually gets drawn. This used to be an
+       <img>; it's a <canvas> now so Guided View can read the page's
+       actual pixels if needed — canvas sizing/scaling behaves the same
+       as img did for everything else here. */
     .page-image {
         width: 100%;
         height: auto;
@@ -383,6 +373,26 @@
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
         cursor: zoom-in;
+        transform-origin: 0 0;
+        transition: transform 550ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* A full-screen "fade to black" overlay used only for Guided View's
+       page-boundary and mode-toggle transitions (see fadeOut()/fadeIn()
+       in the <script>) — never for stepping between sections of the same
+       page, which instead relies purely on the smooth `transform`
+       animation above. Sits above everything (including the zoom/nav
+       pills) so it reads as a genuine full-screen cut; pointer-events:none
+       since it's purely decorative and the fades are always short and
+       driven by code, never something a user needs to click through. */
+    #guidedFadeOverlay {
+        position: fixed;
+        inset: 0;
+        background: #0c0c0c;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 300ms ease;
+        z-index: 400;
     }
 
     /* Zoom controls: the small floating pill in the top-right corner
@@ -637,9 +647,7 @@
         <!-- The actual comic page you're currently reading, drawn onto this
              canvas by loadPageIntoCanvas() in the <script> below. Starts
              hidden (nothing drawn) until the first page is ready. -->
-        <div id="pageStage">
-            <canvas id="pageCanvas" class="page-image" hidden></canvas>
-        </div>
+        <canvas id="pageCanvas" class="page-image" hidden></canvas>
         <div id="zoomControls" hidden>
             <button id="guidedViewBtn" aria-label="Toggle Guided View" title="Guided View: whole page, then top/middle/bottom third">&#9638;</button>
             <button id="zoomOutBtn" aria-label="Zoom out">&#8722;</button>
@@ -653,6 +661,10 @@
         </div>
     </div>
 </div>
+
+<!-- Full-screen fade-to-black overlay for Guided View's page-boundary and
+     mode-toggle transitions — see fadeOut()/fadeIn() in the <script>. -->
+<div id="guidedFadeOverlay"></div>
 
 <script>
 // ============================================================================
@@ -672,7 +684,7 @@ const sidebarPrev = document.getElementById("sidebarPrev");
 const sidebarNext = document.getElementById("sidebarNext");
 const mainView = document.getElementById("mainView");
 const emptyState = document.getElementById("emptyState");
-const pageStage = document.getElementById("pageStage");
+const fadeOverlay = document.getElementById("guidedFadeOverlay");
 const pageCanvas = document.getElementById("pageCanvas");
 const pageCanvasCtx = pageCanvas.getContext("2d");
 const pageNav = document.getElementById("pageNav");
@@ -844,60 +856,91 @@ function getStepsForCurrentPage() {
     ];
 }
 
-// Scales and positions the page so that the given rectangle (in the
-// page's full-resolution pixel coordinates) fills as much of the viewport
-// as possible while staying fully on screen — the "frame this step" step.
+// Scales and shifts the page — via a CSS `transform`, not by resizing it
+// or scrolling #mainView — so that the given rectangle (in the page's
+// full-resolution pixel coordinates) fills as much of the viewport as
+// possible, centered. Using `transform` instead of the width+scrollLeft/
+// scrollTop approach the very first version of this used is what makes
+// the pan/zoom between steps animate smoothly: `transform` is a real CSS
+// property the browser can transition (see .page-image's `transition` in
+// the <style> above); scrollLeft/scrollTop are plain DOM properties CSS
+// transitions can't touch at all, and jump instantly no matter what.
 //
-// This can't just be "resize the canvas, then set #mainView.scrollLeft/
-// scrollTop", the way manual zoom does — a scroll container can only
-// scroll to positions within its actual overflow, and a step's rectangle
-// is very often SHORTER or NARROWER (relative to its own dimension) than
-// the viewport once scaled to fit the other dimension, meaning the
-// resized canvas ends up smaller than the viewport in that axis with
-// nothing to scroll through at all (scrollLeft/scrollTop silently clamp
-// to 0). A step near the left edge of a page like that would try to
-// scroll to a negative position and just get stuck at 0 instead — still
-// technically on screen, but not actually centered the way it should be.
+// The math: we want the rectangle's center point, in on-screen pixels, to
+// land exactly at #mainView's center. We measure the canvas's own
+// natural (untransformed) on-screen box first — transform-origin:0 0
+// means a local point at (px, py) in that natural box ends up on screen
+// at `naturalBoxTopLeft + translate + scale * (px, py)`, so the needed
+// translate is just solved for algebraically from that.
 //
-// The fix: #pageStage (the canvas's wrapper — see its own comment in the
-// <style> above) is padded out to canvas-size-plus-one-full-viewport on
-// every side, and the canvas is absolutely positioned inside it. That
-// guarantees there's always enough real scrollable space to bring any
-// point of the canvas — even one right at its edge — to the exact center
-// of the viewport, regardless of how the scaled canvas compares in size
-// to the viewport in either dimension.
+// Measuring "untransformed" requires briefly turning the transition off
+// before reading getBoundingClientRect() — otherwise, if a transform
+// transition from a previous step is still animating, we'd measure a
+// mid-animation box instead of the true natural one. Turning the
+// transition off and back on within the same synchronous block of code
+// never actually paints the in-between state, so there's no visible
+// flicker from this.
 function frameRect(rectX, rectY, rectWidth, rectHeight) {
-    const viewportWidth = mainView.clientWidth;
-    const viewportHeight = mainView.clientHeight;
-    const scale = Math.min(viewportWidth / rectWidth, viewportHeight / rectHeight) * GUIDED_FIT_MARGIN;
+    const previousTransition = pageCanvas.style.transition;
+    pageCanvas.style.transition = "none";
+    pageCanvas.style.transform = "none";
+    void pageCanvas.offsetHeight; // force layout to actually apply the above before we measure
+    const naturalBox = pageCanvas.getBoundingClientRect();
+    pageCanvas.style.transition = previousTransition;
 
-    const canvasWidth = pageCanvas.width * scale;
-    const canvasHeight = pageCanvas.height * scale;
-    pageCanvas.style.width = canvasWidth + "px";
-    pageCanvas.style.margin = "0";
-    pageCanvas.style.position = "absolute";
-    pageCanvas.style.left = viewportWidth + "px";
-    pageCanvas.style.top = viewportHeight + "px";
+    const mainViewBox = mainView.getBoundingClientRect();
+    const naturalScale = naturalBox.width / pageCanvas.width;
+    const targetScale = Math.min(mainViewBox.width / rectWidth, mainViewBox.height / rectHeight) * GUIDED_FIT_MARGIN;
+    const transformScale = targetScale / naturalScale;
 
-    pageStage.style.width = (canvasWidth + viewportWidth * 2) + "px";
-    pageStage.style.height = (canvasHeight + viewportHeight * 2) + "px";
+    // The target rectangle's center, in local (untransformed, top-left
+    // relative) CSS pixels.
+    const localCenterX = (rectX + rectWidth / 2) * naturalScale;
+    const localCenterY = (rectY + rectHeight / 2) * naturalScale;
 
-    const targetCenterX = viewportWidth + (rectX + rectWidth / 2) * scale;
-    const targetCenterY = viewportHeight + (rectY + rectHeight / 2) * scale;
-    mainView.scrollLeft = targetCenterX - viewportWidth / 2;
-    mainView.scrollTop = targetCenterY - viewportHeight / 2;
+    // Where we want that point to end up: dead-center of #mainView.
+    const targetScreenX = mainViewBox.left + mainViewBox.width / 2;
+    const targetScreenY = mainViewBox.top + mainViewBox.height / 2;
+
+    const translateX = targetScreenX - naturalBox.left - transformScale * localCenterX;
+    const translateY = targetScreenY - naturalBox.top - transformScale * localCenterY;
+
+    pageCanvas.style.transform = `translate(${translateX}px, ${translateY}px) scale(${transformScale})`;
 }
 
-// Undoes frameRect()'s positioning, back to the normal (CSS-driven,
-// percentage-width, auto-centered) layout — called whenever Guided View
-// turns off.
-function resetPageStage() {
-    pageStage.style.width = "";
-    pageStage.style.height = "";
-    pageCanvas.style.position = "";
-    pageCanvas.style.left = "";
-    pageCanvas.style.top = "";
-    pageCanvas.style.margin = "";
+// Undoes frameRect()'s transform, back to the normal (CSS-driven,
+// percentage-width) layout — called whenever Guided View turns off.
+function resetGuidedTransform() {
+    pageCanvas.style.transform = "";
+    mainView.style.overflow = "";
+}
+
+// ----------------------------------------------------------------------
+// Fade-to-black transitions, used only for Guided View's page-boundary
+// crossings and mode toggle — never for stepping between sections of the
+// same page, which relies purely on frameRect()'s smooth `transform`
+// animation instead. The distinction is deliberate: within a page, this
+// should feel like one continuous camera move over the same artwork;
+// crossing into different content (a new page, or turning Guided View
+// on/off) is a real cut, and a brief fade reads as an intentional scene
+// break instead of a jarring pop — while also conveniently hiding the
+// moment a new page's image is still being decoded and drawn.
+// ----------------------------------------------------------------------
+const FADE_DURATION = 300; // ms — kept snappier than the pan/zoom transition, since this is a full blackout
+let guidedTransitionInProgress = false;
+
+function fadeOut() {
+    return new Promise(resolve => {
+        fadeOverlay.style.opacity = "1";
+        setTimeout(resolve, FADE_DURATION);
+    });
+}
+
+function fadeIn() {
+    return new Promise(resolve => {
+        fadeOverlay.style.opacity = "0";
+        setTimeout(resolve, FADE_DURATION);
+    });
 }
 
 // Frames the step at the given index (0-3) for the current page, and
@@ -916,10 +959,21 @@ function showStep(index) {
 }
 
 // Turns Guided View on/off. Manual zoom and Guided View both drive the
-// canvas's width/position, so only one is ever active — turning Guided
+// canvas's transform/width, so only one is ever active — turning Guided
 // View on disables the zoom +/- buttons (and vice versa, they get
-// re-enabled when it's turned off).
-function setGuidedView(enabled) {
+// re-enabled when it's turned off). Fades through black around the
+// switch (skipped if no comic is loaded yet — nothing to see, no reason
+// to make the empty state flash) since this is a full context switch
+// between normal reading and stepped viewing, not a same-page move.
+async function setGuidedView(enabled) {
+    if (guidedTransitionInProgress) return;
+    const hasComic = pageUrls.length > 0;
+
+    if (hasComic) {
+        guidedTransitionInProgress = true;
+        await fadeOut();
+    }
+
     guidedViewEnabled = enabled;
     guidedViewBtn.classList.toggle("active", enabled);
     zoomOutBtn.disabled = enabled || zoomLevel <= ZOOM_MIN;
@@ -927,19 +981,27 @@ function setGuidedView(enabled) {
 
     if (enabled) {
         currentStepIndex = 0;
-        if (pageUrls.length > 0) showStep(0);
+        mainView.style.overflow = "hidden"; // manual scrolling would fight with the transform-driven view
+        mainView.scrollTop = 0;
+        mainView.scrollLeft = 0;
+        if (hasComic) showStep(0);
     } else {
-        resetPageStage();
+        resetGuidedTransform();
         applyZoom();
         // Recompute against plain page boundaries — showStep() may have
         // last set these based on step position (e.g. "not disabled"
         // because we weren't at the first/last step of page 1), which
         // can disagree with the correct normal-mode answer for the same
         // page (e.g. "should be disabled, this IS page 1").
-        if (pageUrls.length > 0) {
+        if (hasComic) {
             prevBtn.disabled = currentIndex === 0;
             nextBtn.disabled = currentIndex === pageUrls.length - 1;
         }
+    }
+
+    if (hasComic) {
+        await fadeIn();
+        guidedTransitionInProgress = false;
     }
 }
 
@@ -995,12 +1057,16 @@ function revokeAllPageUrls() {
 
 // Displays the page at the given index (0 = first page). This is the one
 // function that actually changes what's on screen when you move between
-// pages — called by goPrev()/goNext() below, and by clicking a thumbnail.
-// Pass { enterFromEnd: true } when arriving from "previous page" while
-// Guided View is on, so it starts at that page's LAST panel instead of
-// its first (matching how you'd naturally step backwards through panels).
+// pages — called (via goToPage() below) by goPrev()/goNext() and by
+// clicking a thumbnail. Pass { enterFromEnd: true } when arriving from
+// "previous page" while Guided View is on, so it starts at that page's
+// LAST step instead of its first (matching how you'd naturally step
+// backwards). Returns a Promise that resolves once the new page is fully
+// drawn and (in Guided View) framed — goToPage() awaits this so it knows
+// when it's safe to fade back in, rather than revealing a still-loading
+// or not-yet-framed page.
 function showPage(index, options = {}) {
-    if (pageUrls.length === 0) return;
+    if (pageUrls.length === 0) return Promise.resolve();
 
     // Clamp the requested index so you can't go before the first page or
     // past the last one (e.g. clicking "next" on the final page does
@@ -1014,7 +1080,7 @@ function showPage(index, options = {}) {
     // CSS percentage width doesn't depend on the image being ready yet —
     // see the "if (!guidedViewEnabled)" block below, which runs
     // immediately instead.
-    loadPageIntoCanvas(pageUrls[currentIndex]).then(() => {
+    const loaded = loadPageIntoCanvas(pageUrls[currentIndex]).then(() => {
         if (guidedViewEnabled) {
             const steps = getStepsForCurrentPage();
             showStep(options.enterFromEnd ? steps.length - 1 : 0);
@@ -1054,6 +1120,28 @@ function showPage(index, options = {}) {
     if (activeThumb) {
         activeThumb.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
+
+    return loaded;
+}
+
+// Switches to a different page, fading through black around it when
+// Guided View is on (since that's genuinely different content, not a
+// same-page camera move — see the fade section's comment above) and
+// skipping the fade entirely in normal mode (showPage() alone already
+// looks fine there — it's just the plain page turn this app always had).
+// Used by goPrev()/goNext()'s page-crossing branches and by clicking a
+// thumbnail.
+async function goToPage(index, options = {}) {
+    if (!guidedViewEnabled) {
+        showPage(index, options);
+        return;
+    }
+    if (guidedTransitionInProgress) return;
+    guidedTransitionInProgress = true;
+    await fadeOut();
+    await showPage(index, options);
+    await fadeIn();
+    guidedTransitionInProgress = false;
 }
 
 // One step backward: the previous Guided View step if there is one,
@@ -1066,7 +1154,7 @@ function goPrev() {
         return;
     }
     if (currentIndex > 0) {
-        showPage(currentIndex - 1, { enterFromEnd: guidedViewEnabled });
+        goToPage(currentIndex - 1, { enterFromEnd: guidedViewEnabled });
     }
 }
 
@@ -1081,7 +1169,7 @@ function goNext() {
         }
     }
     if (currentIndex < pageUrls.length - 1) {
-        showPage(currentIndex + 1);
+        goToPage(currentIndex + 1);
     }
 }
 
@@ -1288,7 +1376,7 @@ fileInput.addEventListener("change", async (event) => {
 
             const thumbItem = document.createElement("div");
             thumbItem.className = "thumb-item";
-            thumbItem.addEventListener("click", () => showPage(i));
+            thumbItem.addEventListener("click", () => goToPage(i));
 
             const thumbImg = document.createElement("img");
             thumbImg.className = "thumb";
