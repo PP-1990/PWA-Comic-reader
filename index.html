@@ -170,9 +170,19 @@
        just its two stacked rows (button row, then text row). */
     #log {
         flex-shrink: 0;
-        width: 90%;
+        /* Reserve fixed clearance on the right for #zoomControls (a
+           position:fixed pill pinned to the top-right corner, so it
+           always paints above this normal-flow box wherever they
+           overlap). A percentage-based width only happened to clear it
+           at wide desktop viewports; at tablet widths this box's right
+           edge grew far enough right to land underneath the zoom pill,
+           making its close button unclickable. calc() keeps a
+           consistent ~38px gap from the pill at every viewport width
+           instead of a percentage that varies with screen size. */
+        margin-top: 10px;
+        margin-left: 12px;
+        width: calc(100% - 210px);
         max-width: 1000px;
-        margin: 10px auto;
         background:
             radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1.5px) 0 0 / 8px 8px,
             rgba(17, 17, 17, 0.45);
@@ -460,6 +470,17 @@
            file button is tight. */
         .status {
             font-size: 12px;
+        }
+
+        /* On mobile #zoomControls moves down to sit above the nav pill
+           (see its own rule further below) instead of the top-right
+           corner, so there's no collision to avoid here — go back to a
+           wider, centered box instead of the desktop/tablet layout that
+           reserves clearance on the right for that pill. */
+        #log {
+            margin: 10px auto;
+            width: 90%;
+            max-width: 1000px;
         }
 
         /* Stack the filmstrip above the page instead of beside it. */
