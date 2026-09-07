@@ -817,8 +817,8 @@ sidebarNext.addEventListener("click", () => {
 });
 
 // ----------------------------------------------------------------------
-// GUIDED VIEW: steps through each page in four fixed stages instead of
-// showing the whole thing at once — (1) the entire page, (2) its top
+// GUIDED VIEW: steps through each page in up to four fixed stages instead
+// of showing the whole thing at once — (1) the entire page, (2) its top
 // third, (3) its middle third, (4) its bottom third — each framed to
 // fill as much of the screen as possible.
 //
@@ -832,6 +832,14 @@ sidebarNext.addEventListener("click", () => {
 // stepping pattern can't misdetect anything, because it never looks at
 // the content at all. It won't always land exactly on a panel edge, but
 // it never breaks, misfires, or needs a fallback case.
+//
+// The thirds only ever apply to pages that are actually tall enough to
+// need them, though — see getStepsForCurrentPage()'s pageNeedsSplitting
+// check below. A short, wide page (a comic strip, a landscape spread)
+// already shows its whole height on screen at a reasonable size when fit
+// to width, so splitting it into thirds wouldn't zoom in any further —
+// it would just crop it into three needlessly narrow horizontal bands
+// for no benefit. Those pages get a single whole-page step instead.
 // ----------------------------------------------------------------------
 
 const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a step's edges aren't flush against the screen edge
@@ -883,17 +891,36 @@ function captureNaturalBox() {
     pageCanvas.style.transition = previousTransition;
 }
 
-// The four fixed viewing rectangles for the current page, in the page's
-// own full-resolution pixel coordinates: the whole page, then its top,
-// middle, and bottom thirds. Cheap to compute (just arithmetic on the
-// canvas's dimensions), so unlike real panel detection this doesn't need
-// to be cached.
+// The viewing rectangles for the current page, in the page's own
+// full-resolution pixel coordinates: the whole page, then — only if the
+// page actually needs it — its top, middle, and bottom thirds. Cheap to
+// compute (just arithmetic on the canvas's dimensions and #mainView's
+// current size), so unlike real panel detection this doesn't need to be
+// cached.
 function getStepsForCurrentPage() {
     const width = pageCanvas.width;
     const height = pageCanvas.height;
+    const wholePage = { x: 0, y: 0, width, height };
+
+    // Thirds only help when fitting the whole page to the viewport is
+    // constrained by its HEIGHT rather than its width — i.e. the page
+    // reads as a tall vertical scroll a single screen can't comfortably
+    // show at once. That's exactly the comparison a fit-to-viewport scale
+    // calculation makes: min(viewportWidth/pageWidth, viewportHeight/
+    // pageHeight) picks height as the limiting dimension precisely when
+    // viewportHeight/pageHeight < viewportWidth/pageWidth. When width is
+    // the limiting dimension instead (a short, wide strip), the whole
+    // page already fits its full height on screen with room to spare, so
+    // slicing it into thirds wouldn't zoom in any further — the third's
+    // fit-to-viewport scale would still be limited by that same width
+    // term, making it identical to the whole page's scale, just cropped.
+    const mainViewBox = mainView.getBoundingClientRect();
+    const pageNeedsSplitting = (mainViewBox.height / height) < (mainViewBox.width / width);
+    if (!pageNeedsSplitting) return [wholePage];
+
     const thirdHeight = height / 3;
     return [
-        { x: 0, y: 0, width, height },                                            // whole page
+        wholePage,
         { x: 0, y: 0, width, height: thirdHeight },                                // top third
         { x: 0, y: thirdHeight, width, height: thirdHeight },                      // middle third
         { x: 0, y: thirdHeight * 2, width, height: height - thirdHeight * 2 }      // bottom third (subtraction avoids a rounding gap at the very edge)
