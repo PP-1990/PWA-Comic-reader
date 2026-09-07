@@ -395,6 +395,127 @@
         z-index: 400;
     }
 
+    /* The "pick a starting zoom / reading direction" prompt shown when
+       turning Guided View on — see openGuidedSetup() in the <script>.
+       Sits above the fade overlay (higher z-index) so it's never hidden
+       behind a fade-to-black, and unlike the fade overlay it needs actual
+       clicks, so pointer-events stay at their default (auto). */
+    #guidedSetupOverlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 500;
+    }
+
+    /* The prompt box itself — same dotted-texture, black-bordered "comic
+       panel" look as #log's console box. */
+    #guidedSetupBox {
+        width: 260px;
+        padding: 18px 20px;
+        background:
+            radial-gradient(circle, rgba(255,255,255,0.07) 1px, transparent 1.5px) 0 0 / 8px 8px,
+            #1a1a1a;
+        border: 2px solid #000;
+        border-radius: 6px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+        color: white;
+    }
+
+    #guidedSetupBox h2 {
+        margin: 0 0 16px;
+        color: #ffd54f;
+        font-size: 17px;
+        text-align: center;
+    }
+
+    .guidedSetupRow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+    }
+
+    .guidedSetupLabel {
+        font-size: 13px;
+    }
+
+    /* Reuses #zoomControls's own "− 100% +" pill look for the starting
+       zoom stepper, so it reads as the same control the reader already
+       knows from the top-right zoom pill. */
+    .guidedZoomStepper {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .guidedZoomStepper button {
+        background: rgba(255, 255, 255, 0.12);
+        color: white;
+        border: none;
+        width: 26px;
+        height: 26px;
+        border-radius: 50%;
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
+    .guidedZoomStepper button:hover {
+        background: rgba(255, 255, 255, 0.22);
+    }
+
+    #guidedZoomLabel {
+        color: #ffd54f;
+        min-width: 40px;
+        text-align: center;
+        font-size: 13px;
+    }
+
+    #mangaModeRow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        margin-bottom: 18px;
+        cursor: pointer;
+    }
+
+    .guidedSetupButtons {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .guidedSetupButtons button {
+        border: none;
+        border-radius: 20px;
+        padding: 7px 16px;
+        font-size: 13px;
+        cursor: pointer;
+    }
+
+    #guidedSetupCancelBtn {
+        background: rgba(255, 255, 255, 0.12);
+        color: white;
+    }
+
+    #guidedSetupCancelBtn:hover {
+        background: rgba(255, 255, 255, 0.22);
+    }
+
+    #guidedSetupStartBtn {
+        background: #ffd54f;
+        color: #1a1a1a;
+        font-weight: bold;
+    }
+
+    #guidedSetupStartBtn:hover {
+        background: #ffca28;
+    }
+
     /* Zoom controls: the small floating pill in the top-right corner
        holding the Guided View toggle plus the "− 100% +" zoom buttons,
        same visual language as #pageNav below but its own fixed position
@@ -649,7 +770,7 @@
              hidden (nothing drawn) until the first page is ready. -->
         <canvas id="pageCanvas" class="page-image" hidden></canvas>
         <div id="zoomControls" hidden>
-            <button id="guidedViewBtn" aria-label="Toggle Guided View" title="Guided View: whole page, then top/middle/bottom third">&#9638;</button>
+            <button id="guidedViewBtn" aria-label="Toggle Guided View" title="Guided View: scan the page at your chosen zoom">&#9638;</button>
             <button id="zoomOutBtn" aria-label="Zoom out">&#8722;</button>
             <span id="zoomLevelLabel" title="Click to reset zoom">100%</span>
             <button id="zoomInBtn" aria-label="Zoom in">&#43;</button>
@@ -665,6 +786,32 @@
 <!-- Full-screen fade-to-black overlay for Guided View's page-boundary and
      mode-toggle transitions — see fadeOut()/fadeIn() in the <script>. -->
 <div id="guidedFadeOverlay"></div>
+
+<!-- Guided View setup prompt: shown when turning Guided View ON, so the
+     reader picks a starting zoom and reading direction before the scan
+     begins — see openGuidedSetup() and guidedViewBtn's click listener in
+     the <script> below. -->
+<div id="guidedSetupOverlay" hidden>
+    <div id="guidedSetupBox">
+        <h2>Guided View</h2>
+        <div class="guidedSetupRow">
+            <span class="guidedSetupLabel">Starting zoom</span>
+            <div class="guidedZoomStepper">
+                <button id="guidedZoomOutBtn" aria-label="Decrease starting zoom">&#8722;</button>
+                <span id="guidedZoomLabel">200%</span>
+                <button id="guidedZoomInBtn" aria-label="Increase starting zoom">&#43;</button>
+            </div>
+        </div>
+        <label id="mangaModeRow">
+            <input type="checkbox" id="mangaModeCheckbox">
+            Reading manga? (right to left)
+        </label>
+        <div class="guidedSetupButtons">
+            <button id="guidedSetupCancelBtn">Cancel</button>
+            <button id="guidedSetupStartBtn">Start</button>
+        </div>
+    </div>
+</div>
 
 <script>
 // ============================================================================
@@ -685,6 +832,13 @@ const sidebarNext = document.getElementById("sidebarNext");
 const mainView = document.getElementById("mainView");
 const emptyState = document.getElementById("emptyState");
 const fadeOverlay = document.getElementById("guidedFadeOverlay");
+const guidedSetupOverlay = document.getElementById("guidedSetupOverlay");
+const guidedZoomLabel = document.getElementById("guidedZoomLabel");
+const guidedZoomOutBtn = document.getElementById("guidedZoomOutBtn");
+const guidedZoomInBtn = document.getElementById("guidedZoomInBtn");
+const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
+const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
+const guidedSetupStartBtn = document.getElementById("guidedSetupStartBtn");
 const pageCanvas = document.getElementById("pageCanvas");
 const pageCanvasCtx = pageCanvas.getContext("2d");
 const pageNav = document.getElementById("pageNav");
@@ -818,10 +972,11 @@ sidebarNext.addEventListener("click", () => {
 
 // ----------------------------------------------------------------------
 // GUIDED VIEW: after a brief whole-page overview, scans the page like you'd
-// read it — zoom into the top-left corner, pan left to right across that
-// row, drop down to the next row and repeat, until the last row's pan
-// reaches the bottom of the page. Every stage is framed to fill as much of
-// the screen as possible.
+// read it — starting at the reader's own chosen zoom level, zoom into the
+// top-left corner (top-right for manga), pan across that row toward the
+// opposite edge, drop down to the next row and repeat, until the last
+// row's pan reaches the bottom of the page. Every stage is framed to fill
+// as much of the screen as possible.
 //
 // This is deliberately NOT trying to detect real panel boundaries. An
 // earlier version of this feature analyzed each page's actual pixels to
@@ -834,19 +989,16 @@ sidebarNext.addEventListener("click", () => {
 // the content at all. It won't always land exactly on a panel edge, but
 // it never breaks, misfires, or needs a fallback case.
 //
-// The grid size itself — how many rows, how many columns per row — isn't
-// a fixed number, though; it adapts to whatever the current page AND
-// viewport actually need, computed fresh by getStepsForCurrentPage()
-// below. There's no "3 rows" or "2 columns" baked in anywhere: rows keep
-// getting added only as long as another row would still zoom in further
-// (i.e. the page is still HEIGHT-bound at the current row count), and
-// once that stops helping, columns get added the same way for whatever
-// WIDTH bottleneck is left over. A short, wide page (a comic strip, a
-// landscape spread) naturally computes to a single row, so it's just a
-// left-to-right pan across that one row before moving to the next page —
-// no special-casing needed. And a page that already fits the viewport
-// fine as-is computes to a single row AND a single column, i.e. just the
-// whole-page step with nothing further to scan through.
+// The grid size — how many rows, how many columns per row — isn't a
+// fixed number: it falls straight out of the reader's own chosen zoom
+// level (see openGuidedSetup()'s prompt and getStepsForCurrentPage()
+// below), rather than the app silently deciding "how zoomed is enough"
+// on its own. A short, wide page (a comic strip) naturally computes to a
+// single row at any zoom, so it's just a pan across that one row before
+// moving to the next page — no special-casing needed. Reading direction
+// works the same way: manga mode just reverses which edge each row
+// starts from and which way it pans, since manga reads top-to-bottom
+// same as Western comics, only right-to-left instead of left-to-right.
 // ----------------------------------------------------------------------
 
 const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a step's edges aren't flush against the screen edge
@@ -898,88 +1050,72 @@ function captureNaturalBox() {
     pageCanvas.style.transition = previousTransition;
 }
 
-// A sanity cap on how far computeRowCount()/computeColumnCount() below
-// will subdivide a page, purely as a safety net against a pathological
-// image (e.g. a corrupted file reporting a 1x20000 canvas) causing a
-// runaway number of steps. Ordinary comic pages, on any real screen,
-// settle on a handful of rows/columns long before this — see the two
-// functions' comments for why.
-const GUIDED_GRID_CAP = 20;
+// How far the setup prompt's +/- buttons can push the Guided View starting
+// zoom — see openGuidedSetup() further down. 100% would just be the same
+// fit-to-width size normal reading already uses, so the floor here is
+// 125%: some amount of actual close-up is the whole point of the feature.
+const GUIDED_ZOOM_MIN = 1.25;
+const GUIDED_ZOOM_MAX = 4;
+const GUIDED_ZOOM_STEP = 0.25;
+const GUIDED_ZOOM_DEFAULT = 2; // matches the existing double-tap-to-zoom level elsewhere in the app
 
-// How many rows the page needs, so that scanning down through them (each
-// row spanning the full page width) actually keeps zooming in further at
-// each additional row, rather than adding steps for no benefit.
-//
-// A row's fit-to-viewport scale is min(viewportWidth/pageWidth,
-// viewportHeight/rowHeight) — the same "whichever dimension is tighter"
-// calculation used everywhere else in Guided View. As long as height is
-// still that tighter dimension (viewportHeight/rowHeight < viewportWidth/
-// pageWidth), the row is "height-bound": cutting the height further (i.e.
-// one more row) would still increase the achievable zoom. The moment that
-// stops being true — the row has become "width-bound" instead — adding
-// more rows wouldn't zoom in any further, it would just crop the page
-// into more pieces than necessary, so this stops there.
-function computeRowCount(pageWidth, pageHeight, viewportWidth, viewportHeight) {
-    let rows = 1;
-    while (rows < GUIDED_GRID_CAP && (viewportHeight / (pageHeight / rows)) < (viewportWidth / pageWidth)) {
-        rows++;
-    }
-    return rows;
-}
+let guidedZoomLevel = GUIDED_ZOOM_DEFAULT;
+let mangaMode = false;
 
-// The column-count mirror of computeRowCount() above, applied to a single
-// row band instead of the whole page: keeps adding columns while the
-// band is still WIDTH-bound (viewportWidth/columnWidth < viewportHeight/
-// rowHeight), i.e. while panning across another column would still zoom
-// in further than the row already does on its own. A row that's already
-// height-bound (the common case on a wide desktop viewport, once
-// computeRowCount() above has done its job) settles on a single column
-// immediately — no left-to-right panning needed, just straight down the
-// rows. A row that's still width-bound even after being cut down to size
-// (typically a narrow, portrait mobile viewport) gets however many
-// columns it actually takes to clear that — which is also exactly what
-// happens for a short, wide page that computeRowCount() left at a single
-// row: this is the "just pan across the strip" case.
-function computeColumnCount(pageWidth, rowHeight, viewportWidth, viewportHeight) {
-    let cols = 1;
-    while (cols < GUIDED_GRID_CAP && (viewportWidth / (pageWidth / cols)) < (viewportHeight / rowHeight)) {
-        cols++;
-    }
-    return cols;
-}
+// A sanity cap on how many rows/columns getStepsForCurrentPage() below
+// will ever generate, purely as a safety net against a pathological image
+// (e.g. a corrupted file reporting a 1x20000 canvas) producing a runaway
+// number of steps. A real comic page at any zoom the setup prompt allows
+// settles on a handful of rows/columns, nowhere near this.
+const GUIDED_GRID_CAP = 40;
 
 // The viewing rectangles for the current page, in the page's own
-// full-resolution pixel coordinates: the whole page, then a left-to-right,
-// top-to-bottom scan through however many rows/columns the page and the
-// current viewport size actually call for (see computeRowCount() and
-// computeColumnCount() above — there's no fixed step count). Cheap to
-// compute (just arithmetic on the canvas's dimensions and #mainView's
-// current size), so unlike real panel detection this doesn't need to be
-// cached.
+// full-resolution pixel coordinates: the whole page, then a scan through
+// however many rows/columns it takes to cover the page at the reader's
+// chosen guidedZoomLevel, in reading order (left-to-right per row, or
+// right-to-left if mangaMode is on). Cheap to compute (just arithmetic on
+// the canvas's dimensions and #mainView's current size), so unlike real
+// panel detection this doesn't need to be cached.
 function getStepsForCurrentPage() {
     const width = pageCanvas.width;
     const height = pageCanvas.height;
     const wholePage = { x: 0, y: 0, width, height };
 
+    // How much of the page (in the page's own full-resolution pixels)
+    // fits on screen at guidedZoomLevel — the same fit-to-viewport math
+    // frameRect() uses everywhere else, just solved in reverse: instead
+    // of "what scale makes this rectangle fill the viewport", it's "what
+    // rectangle, at this scale, fills the viewport". naturalScale is how
+    // big the page renders at the normal 100% fit-to-width size; the
+    // viewport's own size divided by naturalScale*guidedZoomLevel is the
+    // window, in page pixels, that fills the viewport once zoomed in that
+    // far.
+    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
     const mainViewBox = mainView.getBoundingClientRect();
-    const rows = computeRowCount(width, height, mainViewBox.width, mainViewBox.height);
-    const rowHeight = height / rows;
-    const cols = computeColumnCount(width, rowHeight, mainViewBox.width, mainViewBox.height);
-    const colWidth = width / cols;
+    const naturalScale = naturalBox.width / width;
+    const cellWidth = mainViewBox.width / (naturalScale * guidedZoomLevel);
+    const cellHeight = mainViewBox.height / (naturalScale * guidedZoomLevel);
 
-    if (rows === 1 && cols === 1) return [wholePage]; // whole page already fits the viewport fine as-is
+    const rows = Math.min(GUIDED_GRID_CAP, Math.max(1, Math.ceil(height / cellHeight)));
+    const cols = Math.min(GUIDED_GRID_CAP, Math.max(1, Math.ceil(width / cellWidth)));
+
+    if (rows === 1 && cols === 1) return [wholePage]; // the chosen zoom already shows the whole page at once
 
     const steps = [wholePage];
     for (let r = 0; r < rows; r++) {
-        const y = r * rowHeight;
-        // Subtracting (rather than using rowHeight directly) on the last
-        // row/column avoids a rounding gap at the very bottom/right edge.
-        const rectHeight = (r === rows - 1) ? (height - rowHeight * (rows - 1)) : rowHeight;
+        const y = r * cellHeight;
+        const rectHeight = Math.min(cellHeight, height - y); // the last row is whatever's left over, not a full cell
+        const rowSteps = [];
         for (let c = 0; c < cols; c++) {
-            const x = c * colWidth;
-            const rectWidth = (c === cols - 1) ? (width - colWidth * (cols - 1)) : colWidth;
-            steps.push({ x, y, width: rectWidth, height: rectHeight });
+            const x = c * cellWidth;
+            const rectWidth = Math.min(cellWidth, width - x); // same for the last column
+            rowSteps.push({ x, y, width: rectWidth, height: rectHeight });
         }
+        // Manga reads right-to-left: start each row at its right edge and
+        // pan leftward instead of the default left-to-right sweep. Row
+        // order (top to bottom) doesn't change either way.
+        if (mangaMode) rowSteps.reverse();
+        steps.push(...rowSteps);
     }
     return steps;
 }
@@ -1190,7 +1326,58 @@ async function setGuidedView(enabled) {
     }
 }
 
-guidedViewBtn.addEventListener("click", () => setGuidedView(!guidedViewEnabled));
+// ----------------------------------------------------------------------
+// GUIDED VIEW SETUP PROMPT: shown when turning Guided View ON, so the
+// reader picks a starting zoom level and reading direction (see
+// guidedZoomLevel/mangaMode above) before the scan begins. Skipped when
+// turning it back OFF (nothing to ask there) and when there's no comic
+// open yet (setGuidedView() itself already handles that empty state).
+// ----------------------------------------------------------------------
+function updateGuidedZoomLabel() {
+    guidedZoomLabel.textContent = Math.round(guidedZoomLevel * 100) + "%";
+}
+
+function openGuidedSetup() {
+    updateGuidedZoomLabel();
+    mangaModeCheckbox.checked = mangaMode;
+    guidedSetupOverlay.hidden = false;
+}
+
+function closeGuidedSetup() {
+    guidedSetupOverlay.hidden = true;
+}
+
+guidedZoomOutBtn.addEventListener("click", () => {
+    guidedZoomLevel = Math.max(GUIDED_ZOOM_MIN, +(guidedZoomLevel - GUIDED_ZOOM_STEP).toFixed(2));
+    updateGuidedZoomLabel();
+});
+
+guidedZoomInBtn.addEventListener("click", () => {
+    guidedZoomLevel = Math.min(GUIDED_ZOOM_MAX, +(guidedZoomLevel + GUIDED_ZOOM_STEP).toFixed(2));
+    updateGuidedZoomLabel();
+});
+
+// Cancelling just closes the prompt — Guided View was never actually
+// turned on, so there's nothing else to undo.
+guidedSetupCancelBtn.addEventListener("click", closeGuidedSetup);
+
+guidedSetupStartBtn.addEventListener("click", () => {
+    mangaMode = mangaModeCheckbox.checked;
+    closeGuidedSetup();
+    setGuidedView(true);
+});
+
+guidedViewBtn.addEventListener("click", () => {
+    if (guidedViewEnabled) {
+        setGuidedView(false);
+        return;
+    }
+    if (pageUrls.length === 0) {
+        setGuidedView(true); // nothing to preview yet — matches setGuidedView()'s own no-comic short-circuit, no prompt needed
+        return;
+    }
+    openGuidedSetup();
+});
 
 // The cached natural box (see captureNaturalBox() above) depends on the
 // canvas's rendered size, which changes if the window/viewport is resized
