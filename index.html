@@ -431,6 +431,20 @@
         text-align: center;
     }
 
+    /* The live zoom-preview crop — see updateGuidedPreview() in the
+       <script>. Letterboxed on black (its own drawing fills whatever
+       doesn't match the box's fixed aspect ratio), same "comic panel"
+       framing as the console/log box elsewhere. */
+    #guidedPreviewCanvas {
+        display: block;
+        width: 100%;
+        height: 130px;
+        margin: 0 0 16px;
+        background: #000;
+        border: 1px solid rgba(255, 255, 255, 0.15);
+        border-radius: 4px;
+    }
+
     .guidedSetupRow {
         display: flex;
         align-items: center;
@@ -794,6 +808,10 @@
 <div id="guidedSetupOverlay" hidden>
     <div id="guidedSetupBox">
         <h2>Guided View</h2>
+        <!-- A live crop of the actual current page, showing exactly what
+             the first step will look like at the chosen zoom/direction —
+             see updateGuidedPreview() in the <script>. -->
+        <canvas id="guidedPreviewCanvas" width="220" height="140"></canvas>
         <div class="guidedSetupRow">
             <span class="guidedSetupLabel">Starting zoom</span>
             <div class="guidedZoomStepper">
@@ -833,6 +851,7 @@ const mainView = document.getElementById("mainView");
 const emptyState = document.getElementById("emptyState");
 const fadeOverlay = document.getElementById("guidedFadeOverlay");
 const guidedSetupOverlay = document.getElementById("guidedSetupOverlay");
+const guidedPreviewCanvas = document.getElementById("guidedPreviewCanvas");
 const guidedZoomLabel = document.getElementById("guidedZoomLabel");
 const guidedZoomOutBtn = document.getElementById("guidedZoomOutBtn");
 const guidedZoomInBtn = document.getElementById("guidedZoomInBtn");
@@ -1069,6 +1088,28 @@ let mangaMode = false;
 // settles on a handful of rows/columns, nowhere near this.
 const GUIDED_GRID_CAP = 40;
 
+// How big a crop window, in the page's own full-resolution pixels, fills
+// the viewport at the given zoom level — the same fit-to-viewport math
+// frameRect() uses everywhere else, just solved in reverse: instead of
+// "what scale makes this rectangle fill the viewport", it's "what
+// rectangle, at this scale, fills the viewport". naturalScale is how big
+// the page renders at the normal 100% fit-to-width size; the viewport's
+// own size divided by naturalScale*zoomLevel is the window, in page
+// pixels, that fills the viewport once zoomed in that far. Shared by
+// getStepsForCurrentPage() below and the setup prompt's live zoom
+// preview (see updateGuidedPreview()), so the preview always shows
+// exactly what the real first step will look like.
+function computeGuidedCellSize(zoomLevel) {
+    const width = pageCanvas.width;
+    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
+    const mainViewBox = mainView.getBoundingClientRect();
+    const naturalScale = naturalBox.width / width;
+    return {
+        cellWidth: mainViewBox.width / (naturalScale * zoomLevel),
+        cellHeight: mainViewBox.height / (naturalScale * zoomLevel)
+    };
+}
+
 // The viewing rectangles for the current page, in the page's own
 // full-resolution pixel coordinates: the whole page, then a scan through
 // however many rows/columns it takes to cover the page at the reader's
@@ -1081,20 +1122,7 @@ function getStepsForCurrentPage() {
     const height = pageCanvas.height;
     const wholePage = { x: 0, y: 0, width, height };
 
-    // How much of the page (in the page's own full-resolution pixels)
-    // fits on screen at guidedZoomLevel — the same fit-to-viewport math
-    // frameRect() uses everywhere else, just solved in reverse: instead
-    // of "what scale makes this rectangle fill the viewport", it's "what
-    // rectangle, at this scale, fills the viewport". naturalScale is how
-    // big the page renders at the normal 100% fit-to-width size; the
-    // viewport's own size divided by naturalScale*guidedZoomLevel is the
-    // window, in page pixels, that fills the viewport once zoomed in that
-    // far.
-    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
-    const mainViewBox = mainView.getBoundingClientRect();
-    const naturalScale = naturalBox.width / width;
-    const cellWidth = mainViewBox.width / (naturalScale * guidedZoomLevel);
-    const cellHeight = mainViewBox.height / (naturalScale * guidedZoomLevel);
+    const { cellWidth, cellHeight } = computeGuidedCellSize(guidedZoomLevel);
 
     const rows = Math.min(GUIDED_GRID_CAP, Math.max(1, Math.ceil(height / cellHeight)));
     const cols = Math.min(GUIDED_GRID_CAP, Math.max(1, Math.ceil(width / cellWidth)));
@@ -1337,9 +1365,42 @@ function updateGuidedZoomLabel() {
     guidedZoomLabel.textContent = Math.round(guidedZoomLevel * 100) + "%";
 }
 
+// Draws a live crop of the ACTUAL current page — not a placeholder —
+// showing exactly what Guided View's first real step will look like at
+// the currently selected zoom and direction, letterboxed to fit the
+// preview box. Uses the very same computeGuidedCellSize() math
+// getStepsForCurrentPage() uses to build the real steps, so what's
+// previewed here is never a lie: it's the first cell of row 0, from the
+// left edge normally or the right edge in manga mode (the same corner
+// getStepsForCurrentPage()'s mangaMode row-reversal starts each row
+// from).
+function updateGuidedPreview() {
+    const width = pageCanvas.width;
+    const height = pageCanvas.height;
+    const { cellWidth, cellHeight } = computeGuidedCellSize(guidedZoomLevel);
+    const cropWidth = Math.min(width, cellWidth);
+    const cropHeight = Math.min(height, cellHeight);
+    const cropX = mangaModeCheckbox.checked ? Math.max(0, width - cropWidth) : 0;
+
+    const ctx = guidedPreviewCanvas.getContext("2d");
+    const boxWidth = guidedPreviewCanvas.width;
+    const boxHeight = guidedPreviewCanvas.height;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, boxWidth, boxHeight);
+
+    const fitScale = Math.min(boxWidth / cropWidth, boxHeight / cropHeight);
+    const drawWidth = cropWidth * fitScale;
+    const drawHeight = cropHeight * fitScale;
+    ctx.drawImage(
+        pageCanvas, cropX, 0, cropWidth, cropHeight,
+        (boxWidth - drawWidth) / 2, (boxHeight - drawHeight) / 2, drawWidth, drawHeight
+    );
+}
+
 function openGuidedSetup() {
     updateGuidedZoomLabel();
     mangaModeCheckbox.checked = mangaMode;
+    updateGuidedPreview();
     guidedSetupOverlay.hidden = false;
 }
 
@@ -1350,12 +1411,19 @@ function closeGuidedSetup() {
 guidedZoomOutBtn.addEventListener("click", () => {
     guidedZoomLevel = Math.max(GUIDED_ZOOM_MIN, +(guidedZoomLevel - GUIDED_ZOOM_STEP).toFixed(2));
     updateGuidedZoomLabel();
+    updateGuidedPreview();
 });
 
 guidedZoomInBtn.addEventListener("click", () => {
     guidedZoomLevel = Math.min(GUIDED_ZOOM_MAX, +(guidedZoomLevel + GUIDED_ZOOM_STEP).toFixed(2));
     updateGuidedZoomLabel();
+    updateGuidedPreview();
 });
+
+// Toggling manga mode flips which corner the preview (and the real scan)
+// starts from, so the preview needs to refresh here too, not just on
+// zoom changes.
+mangaModeCheckbox.addEventListener("change", updateGuidedPreview);
 
 // Cancelling just closes the prompt — Guided View was never actually
 // turned on, so there's nothing else to undo.
