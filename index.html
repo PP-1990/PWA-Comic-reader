@@ -817,10 +817,10 @@ sidebarNext.addEventListener("click", () => {
 });
 
 // ----------------------------------------------------------------------
-// GUIDED VIEW: steps through each page in up to four fixed stages instead
-// of showing the whole thing at once — (1) the entire page, (2) its top
-// third, (3) its middle third, (4) its bottom third — each framed to
-// fill as much of the screen as possible.
+// GUIDED VIEW: steps through each page in fixed stages instead of showing
+// the whole thing at once — the entire page, then its top/middle/bottom
+// thirds, each optionally split further into left/right halves — every
+// stage framed to fill as much of the screen as possible.
 //
 // This is deliberately NOT trying to detect real panel boundaries. An
 // earlier version of this feature analyzed each page's actual pixels to
@@ -833,13 +833,21 @@ sidebarNext.addEventListener("click", () => {
 // the content at all. It won't always land exactly on a panel edge, but
 // it never breaks, misfires, or needs a fallback case.
 //
-// The thirds only ever apply to pages that are actually tall enough to
-// need them, though — see getStepsForCurrentPage()'s pageNeedsSplitting
-// check below. A short, wide page (a comic strip, a landscape spread)
-// already shows its whole height on screen at a reasonable size when fit
-// to width, so splitting it into thirds wouldn't zoom in any further —
-// it would just crop it into three needlessly narrow horizontal bands
-// for no benefit. Those pages get a single whole-page step instead.
+// The exact grid — whether to split into thirds at all, and whether each
+// third further splits into halves — adapts per page AND per viewport
+// size, not just per page; see getStepsForCurrentPage()'s
+// pageNeedsRowSplitting/bandNeedsColSplitting checks below. A short, wide
+// page (a comic strip, a landscape spread) already shows its whole height
+// on screen at a reasonable size when fit to width, so splitting it into
+// thirds wouldn't zoom in any further — those pages get a single
+// whole-page step. And on a narrow viewport (most commonly a phone in
+// portrait), a row-third's WIDTH can still be the tighter constraint even
+// after its height was cut down — the same bottleneck that skipped
+// row-splitting for short pages above, just checked at the row level —
+// which used to leave the text just as small as the whole page despite
+// having "zoomed in". Splitting that row into left/right halves clears
+// it, which is why this looked fine on desktop (plenty of width to
+// spare) but was nearly useless on mobile before this existed.
 // ----------------------------------------------------------------------
 
 const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a step's edges aren't flush against the screen edge
@@ -893,8 +901,9 @@ function captureNaturalBox() {
 
 // The viewing rectangles for the current page, in the page's own
 // full-resolution pixel coordinates: the whole page, then — only if the
-// page actually needs it — its top, middle, and bottom thirds. Cheap to
-// compute (just arithmetic on the canvas's dimensions and #mainView's
+// page actually needs it — its top, middle, and bottom thirds, each
+// further split into left/right halves if THAT still needs it too. Cheap
+// to compute (just arithmetic on the canvas's dimensions and #mainView's
 // current size), so unlike real panel detection this doesn't need to be
 // cached.
 function getStepsForCurrentPage() {
@@ -915,16 +924,39 @@ function getStepsForCurrentPage() {
     // fit-to-viewport scale would still be limited by that same width
     // term, making it identical to the whole page's scale, just cropped.
     const mainViewBox = mainView.getBoundingClientRect();
-    const pageNeedsSplitting = (mainViewBox.height / height) < (mainViewBox.width / width);
-    if (!pageNeedsSplitting) return [wholePage];
+    const pageNeedsRowSplitting = (mainViewBox.height / height) < (mainViewBox.width / width);
+    if (!pageNeedsRowSplitting) return [wholePage];
 
     const thirdHeight = height / 3;
-    return [
-        wholePage,
-        { x: 0, y: 0, width, height: thirdHeight },                                // top third
-        { x: 0, y: thirdHeight, width, height: thirdHeight },                      // middle third
-        { x: 0, y: thirdHeight * 2, width, height: height - thirdHeight * 2 }      // bottom third (subtraction avoids a rounding gap at the very edge)
+    const rows = [
+        { y: 0, height: thirdHeight },
+        { y: thirdHeight, height: thirdHeight },
+        { y: thirdHeight * 2, height: height - thirdHeight * 2 } // subtraction avoids a rounding gap at the very edge
     ];
+
+    // A row band is exactly as wide as the whole page (only its height
+    // shrank), so on a wide desktop viewport it now fits comfortably —
+    // but on a narrow one (most commonly a phone in portrait) the width
+    // can still be the tighter constraint even after that height cut,
+    // same as it was for the whole page above, just checked against a
+    // band's height instead. When that happens, the row-thirds alone
+    // barely zoom in at all: text stays just as small as the whole page,
+    // which is exactly the "guided view is unreadable on mobile" problem.
+    // Splitting each band into left/right halves clears that leftover
+    // width bottleneck and delivers a real, noticeable zoom instead.
+    const bandNeedsColSplitting = (mainViewBox.width / width) < (mainViewBox.height / thirdHeight);
+    const halfWidth = width / 2;
+
+    const steps = [wholePage];
+    for (const row of rows) {
+        if (bandNeedsColSplitting) {
+            steps.push({ x: 0, y: row.y, width: halfWidth, height: row.height });                 // left half
+            steps.push({ x: halfWidth, y: row.y, width: width - halfWidth, height: row.height });  // right half
+        } else {
+            steps.push({ x: 0, y: row.y, width, height: row.height });
+        }
+    }
+    return steps;
 }
 
 // Scales and shifts the page — via a CSS `transform`, not by resizing it
