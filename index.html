@@ -329,8 +329,12 @@
 
     /* The big area to the right of the sidebar where the current page is
        actually shown. It scrolls (both directions) for whatever doesn't
-       fit — e.g. a very tall page, any page once you've zoomed in, or
-       Guided View framing a panel that's bigger than the screen. */
+       fit — e.g. a very tall page, or any page once you've zoomed in.
+       scroll-behavior:smooth means Guided View's automated pans (which
+       just assign mainView.scrollTop/scrollLeft directly — see
+       guidedAdvance() in the <script>) animate instead of jumping; it has
+       no effect on ordinary wheel/touch/drag scrolling, which is already
+       smooth on its own. */
     #mainView {
         flex: 1;
         min-width: 0;
@@ -339,6 +343,7 @@
         align-items: stretch;
         overflow-y: auto;
         overflow-x: auto;
+        scroll-behavior: smooth;
         padding: 6px;
         position: relative;
     }
@@ -351,20 +356,15 @@
         margin: auto;
     }
 
-    /* Wraps the page canvas. In normal/zoom mode this is just a
-       full-width, auto-sized pass-through (no visual effect of its own).
-       Guided View animates a CSS transform on the image directly (see
-       frameRect() in the <script>), so it needs no special sizing here —
-       width:100% + height:auto is the same "natural" layout used for
-       normal reading and manual zoom; Guided View's pan/zoom is purely a
-       visual overlay on top of that, via `transform`, which — unlike
-       scrollLeft/scrollTop — is a real CSS property the browser can
-       animate smoothly. transform-origin:0 0 makes the transform math in
-       frameRect() (which treats the image's own top-left corner as the
-       zero point) match what actually gets drawn. This used to be an
-       <img>; it's a <canvas> now so Guided View can read the page's
-       actual pixels if needed — canvas sizing/scaling behaves the same
-       as img did for everything else here. */
+    /* Wraps the page canvas. width:100% + height:auto is the "natural"
+       fit-to-width layout normal reading starts at; the zoom +/- controls
+       resize it from there by changing this width percentage (see
+       applyZoom() in the <script>) — Guided View uses that exact same
+       sizing, it just automates scrolling around it instead of adding a
+       zoom mechanism of its own. This used to be an <img>; it's a
+       <canvas> now so image data can be read directly if a future feature
+       needs it — canvas sizing/scaling behaves the same as img did for
+       everything else here. */
     .page-image {
         width: 100%;
         height: auto;
@@ -373,8 +373,6 @@
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
         cursor: zoom-in;
-        transform-origin: 0 0;
-        transition: transform 550ms cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     /* A full-screen "fade to black" overlay used only for Guided View's
@@ -425,67 +423,21 @@
     }
 
     #guidedSetupBox h2 {
-        margin: 0 0 16px;
+        margin: 0 0 12px;
         color: #ffd54f;
         font-size: 17px;
         text-align: center;
     }
 
-    /* The live zoom-preview crop — see updateGuidedPreview() in the
-       <script>. Letterboxed on black (its own drawing fills whatever
-       doesn't match the box's fixed aspect ratio), same "comic panel"
-       framing as the console/log box elsewhere. */
-    #guidedPreviewCanvas {
-        display: block;
-        width: 100%;
-        height: 130px;
+    /* Explains where the zoom/starting position actually comes from, now
+       that the prompt itself no longer sets either — see the "GUIDED
+       VIEW" section comment in the <script> for the reasoning. */
+    #guidedSetupHint {
         margin: 0 0 16px;
-        background: #000;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        border-radius: 4px;
-    }
-
-    .guidedSetupRow {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 14px;
-    }
-
-    .guidedSetupLabel {
-        font-size: 13px;
-    }
-
-    /* Reuses #zoomControls's own "− 100% +" pill look for the starting
-       zoom stepper, so it reads as the same control the reader already
-       knows from the top-right zoom pill. */
-    .guidedZoomStepper {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .guidedZoomStepper button {
-        background: rgba(255, 255, 255, 0.12);
-        color: white;
-        border: none;
-        width: 26px;
-        height: 26px;
-        border-radius: 50%;
-        font-size: 14px;
-        line-height: 1;
-        cursor: pointer;
-    }
-
-    .guidedZoomStepper button:hover {
-        background: rgba(255, 255, 255, 0.22);
-    }
-
-    #guidedZoomLabel {
-        color: #ffd54f;
-        min-width: 40px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: rgba(255, 255, 255, 0.65);
         text-align: center;
-        font-size: 13px;
     }
 
     #mangaModeRow {
@@ -801,25 +753,14 @@
      mode-toggle transitions — see fadeOut()/fadeIn() in the <script>. -->
 <div id="guidedFadeOverlay"></div>
 
-<!-- Guided View setup prompt: shown when turning Guided View ON, so the
-     reader picks a starting zoom and reading direction before the scan
-     begins — see openGuidedSetup() and guidedViewBtn's click listener in
-     the <script> below. -->
+<!-- Guided View setup prompt: shown when turning Guided View ON, to ask
+     the one thing that actually needs asking — reading direction. Zoom
+     and starting position aren't set here; see openGuidedSetup() and the
+     "GUIDED VIEW" section comment in the <script> below. -->
 <div id="guidedSetupOverlay" hidden>
     <div id="guidedSetupBox">
         <h2>Guided View</h2>
-        <!-- A live crop of the actual current page, showing exactly what
-             the first step will look like at the chosen zoom/direction —
-             see updateGuidedPreview() in the <script>. -->
-        <canvas id="guidedPreviewCanvas" width="220" height="140"></canvas>
-        <div class="guidedSetupRow">
-            <span class="guidedSetupLabel">Starting zoom</span>
-            <div class="guidedZoomStepper">
-                <button id="guidedZoomOutBtn" aria-label="Decrease starting zoom">&#8722;</button>
-                <span id="guidedZoomLabel">200%</span>
-                <button id="guidedZoomInBtn" aria-label="Increase starting zoom">&#43;</button>
-            </div>
-        </div>
+        <p id="guidedSetupHint">Uses your current zoom and scroll position as the starting point — set those first, then Guided View takes over panning from there.</p>
         <label id="mangaModeRow">
             <input type="checkbox" id="mangaModeCheckbox">
             Reading manga? (right to left)
@@ -851,10 +792,6 @@ const mainView = document.getElementById("mainView");
 const emptyState = document.getElementById("emptyState");
 const fadeOverlay = document.getElementById("guidedFadeOverlay");
 const guidedSetupOverlay = document.getElementById("guidedSetupOverlay");
-const guidedPreviewCanvas = document.getElementById("guidedPreviewCanvas");
-const guidedZoomLabel = document.getElementById("guidedZoomLabel");
-const guidedZoomOutBtn = document.getElementById("guidedZoomOutBtn");
-const guidedZoomInBtn = document.getElementById("guidedZoomInBtn");
 const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
 const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
 const guidedSetupStartBtn = document.getElementById("guidedSetupStartBtn");
@@ -921,15 +858,16 @@ let zoomLevel = ZOOM_DEFAULT;
 
 // Re-applies the current zoomLevel to the page canvas and updates the
 // +/- buttons' enabled/disabled state and the "100%" label text to match.
-// Called every time zoomLevel changes. Does nothing to size/position while
-// Guided View is active, since that drives the canvas's width/scroll
-// position itself instead (see setGuidedView() below) — the +/- buttons
-// are disabled in that state so this shouldn't normally run then anyway.
+// Called every time zoomLevel changes. Stays fully live during Guided
+// View too — there's no separate guided zoom level any more, Guided View
+// just automates scrolling around whatever zoom this sets (see the
+// "GUIDED VIEW" section further down), so the reader can freely zoom
+// in/out mid-scan the same as normal reading.
 function applyZoom() {
     pageCanvas.style.width = (zoomLevel * 100) + "%";
     zoomLevelLabel.textContent = Math.round(zoomLevel * 100) + "%";
-    zoomOutBtn.disabled = guidedViewEnabled || zoomLevel <= ZOOM_MIN;
-    zoomInBtn.disabled = guidedViewEnabled || zoomLevel >= ZOOM_MAX;
+    zoomOutBtn.disabled = zoomLevel <= ZOOM_MIN;
+    zoomInBtn.disabled = zoomLevel >= ZOOM_MAX;
     pageCanvas.style.cursor = zoomLevel >= ZOOM_MAX ? "zoom-out" : "zoom-in";
 }
 
@@ -957,18 +895,14 @@ zoomOutBtn.addEventListener("click", () => {
     if (zoomLevel <= ZOOM_DEFAULT) mainView.scrollLeft = 0;
 });
 
-// Clicking the "100%" label itself resets zoom back to normal (ignored
-// while Guided View is on, since it isn't using the manual zoom level).
+// Clicking the "100%" label itself resets zoom back to normal.
 zoomLevelLabel.addEventListener("click", () => {
-    if (guidedViewEnabled) return;
     resetZoom();
 });
 
 // Double-clicking/double-tapping the page toggles between the normal size
-// and a 2x close-up, as a quicker shortcut than the +/- buttons (also
-// ignored while Guided View is on).
+// and a 2x close-up, as a quicker shortcut than the +/- buttons.
 pageCanvas.addEventListener("dblclick", () => {
-    if (guidedViewEnabled) return;
     if (zoomLevel !== ZOOM_DEFAULT) {
         resetZoom();
     } else {
@@ -990,290 +924,60 @@ sidebarNext.addEventListener("click", () => {
 });
 
 // ----------------------------------------------------------------------
-// GUIDED VIEW: after a brief whole-page overview, scans the page like you'd
-// read it — starting at the reader's own chosen zoom level, zoom into the
-// top-left corner (top-right for manga), pan across that row toward the
-// opposite edge, drop down to the next row and repeat, until the last
-// row's pan reaches the bottom of the page. Every stage is framed to fill
-// as much of the screen as possible.
+// GUIDED VIEW: automates panning through a page you've already zoomed in
+// on, instead of adding a separate zoom system of its own. There's no
+// "guided zoom level" to set — Next/Prev just scrolls #mainView using
+// whatever zoom and scroll position are already there (see the "ZOOM"
+// section above), the same way the reader would scroll it by hand.
 //
-// This is deliberately NOT trying to detect real panel boundaries. An
+// This is deliberately NOT trying to detect real panel boundaries — an
 // earlier version of this feature analyzed each page's actual pixels to
-// guess where panels were (looking for gutter-colored gaps), which
-// worked well on clean grid comics but could misfire on splash pages,
-// bleeding panel art, or painterly layouts with no hard gutter — a
-// fundamentally hard, never-fully-solvable guessing problem. This
-// version trades "smart" for "always correct": a fixed, content-blind
-// stepping pattern can't misdetect anything, because it never looks at
-// the content at all. It won't always land exactly on a panel edge, but
-// it never breaks, misfires, or needs a fallback case.
-//
-// The grid size — how many rows, how many columns per row — isn't a
-// fixed number: it falls straight out of the reader's own chosen zoom
-// level (see openGuidedSetup()'s prompt and getStepsForCurrentPage()
-// below), rather than the app silently deciding "how zoomed is enough"
-// on its own. A short, wide page (a comic strip) naturally computes to a
-// single row at any zoom, so it's just a pan across that one row before
-// moving to the next page — no special-casing needed. Reading direction
-// works the same way: manga mode just reverses which edge each row
-// starts from and which way it pans, since manga reads top-to-bottom
-// same as Western comics, only right-to-left instead of left-to-right.
+// guess where panels were, which worked on clean grid comics but could
+// misfire on splash pages or layouts with no hard gutter. This version
+// doesn't look at the content at all: every Next/Prev just checks what
+// #mainView actually has left to scroll RIGHT NOW (via its own
+// scrollWidth/scrollHeight vs clientWidth/clientHeight — never
+// precomputed or cached, since the reader can change zoom or scroll
+// manually at any moment) and reacts to exactly that:
+//   - Neither axis has anything left to scroll (the whole page already
+//     fits on screen at the current zoom) — nothing to automate; a
+//     message asks the reader to zoom in or pan first.
+//   - Only the vertical axis overflows (the common case at 100%/fit-to-
+//     width zoom on a tall page) — scroll straight down; reaching the
+//     bottom moves to the next page.
+//   - Both axes overflow (zoomed in far enough that even one row is
+//     wider than the screen) — pan across the row first (left to right,
+//     or right to left in manga mode), only dropping to the next row
+//     once that row's far edge is reached; reaching both the row's far
+//     edge and the bottom of the page moves to the next page.
+// Reading backward (Prev) mirrors all of this, arriving at a new page
+// from its OTHER end — bottom, and whichever horizontal edge a forward
+// scan would have ended that row on — instead of its start, so stepping
+// backward across a page boundary continues smoothly.
 // ----------------------------------------------------------------------
-
-const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a step's edges aren't flush against the screen edge
 
 let guidedViewEnabled = false;
-let currentStepIndex = 0;
-
-// The canvas's natural (untransformed) on-screen box, cached so frameRect()
-// never has to measure it by touching the live transform mid-transition —
-// see captureNaturalBox() below for why that matters.
-let cachedNaturalBox = null;
-
-// The three numbers that make up the canvas's current Guided View
-// transform, kept as their own variables (rather than re-parsing them back
-// out of the `transform` CSS string) so both frameRect() and the manual
-// drag-to-pan/wheel-to-pan handlers further down can read and adjust them
-// directly through the same applyGuidedTransform() helper.
-let guidedTranslateX = 0;
-let guidedTranslateY = 0;
-let guidedScale = 1;
-
-function applyGuidedTransform() {
-    pageCanvas.style.transform = `translate(${guidedTranslateX}px, ${guidedTranslateY}px) scale(${guidedScale})`;
-}
-
-// Measures the canvas's natural (untransformed) on-screen box and caches
-// it for frameRect() to use. This briefly swaps the transform to "none",
-// forces layout so that's actually applied, measures, then swaps it right
-// back — all synchronously, so nothing ever gets painted in between and
-// there's no visible flicker, AS LONG AS this only runs at a moment when
-// the canvas isn't in the middle of visibly transitioning: right after a
-// new page image loads (before that page has been framed yet), or while
-// the fade overlay is fully opaque. Calling it mid-transition would be the
-// bug this replaced — forcing a reflow while "none" is applied makes the
-// browser treat "none" as a real, completed state, so if a transition
-// applied a NEW transform right after that point, it would visibly animate
-// from "none" (the whole, unscaled page) instead of from wherever it
-// actually was on screen a moment ago. Restoring the old transform here
-// with its own forced reflow — before returning — avoids that trap.
-function captureNaturalBox() {
-    const previousTransition = pageCanvas.style.transition;
-    const previousTransform = pageCanvas.style.transform;
-    pageCanvas.style.transition = "none";
-    pageCanvas.style.transform = "none";
-    void pageCanvas.offsetHeight;
-    cachedNaturalBox = pageCanvas.getBoundingClientRect();
-    pageCanvas.style.transform = previousTransform;
-    void pageCanvas.offsetHeight;
-    pageCanvas.style.transition = previousTransition;
-}
-
-// How far the setup prompt's +/- buttons can push the Guided View starting
-// zoom — see openGuidedSetup() further down. 100% would just be the same
-// fit-to-width size normal reading already uses, so the floor here is
-// 125%: some amount of actual close-up is the whole point of the feature.
-const GUIDED_ZOOM_MIN = 1.25;
-const GUIDED_ZOOM_MAX = 4;
-const GUIDED_ZOOM_STEP = 0.25;
-const GUIDED_ZOOM_DEFAULT = 2; // matches the existing double-tap-to-zoom level elsewhere in the app
-
-let guidedZoomLevel = GUIDED_ZOOM_DEFAULT;
 let mangaMode = false;
 
-// A sanity cap on how many rows/columns getStepsForCurrentPage() below
-// will ever generate, purely as a safety net against a pathological image
-// (e.g. a corrupted file reporting a 1x20000 canvas) producing a runaway
-// number of steps. A real comic page at any zoom the setup prompt allows
-// settles on a handful of rows/columns, nowhere near this.
-const GUIDED_GRID_CAP = 40;
-
-// How big a crop window, in the page's own full-resolution pixels, fills
-// the viewport at the given zoom level — the same fit-to-viewport math
-// frameRect() uses everywhere else, just solved in reverse: instead of
-// "what scale makes this rectangle fill the viewport", it's "what
-// rectangle, at this scale, fills the viewport". naturalScale is how big
-// the page renders at the normal 100% fit-to-width size; the viewport's
-// own size divided by naturalScale*zoomLevel is the window, in page
-// pixels, that fills the viewport once zoomed in that far. Shared by
-// getStepsForCurrentPage() below and the setup prompt's live zoom
-// preview (see updateGuidedPreview()), so the preview always shows
-// exactly what the real first step will look like.
-function computeGuidedCellSize(zoomLevel) {
-    const width = pageCanvas.width;
-    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
-    const mainViewBox = mainView.getBoundingClientRect();
-    const naturalScale = naturalBox.width / width;
-    return {
-        cellWidth: mainViewBox.width / (naturalScale * zoomLevel),
-        cellHeight: mainViewBox.height / (naturalScale * zoomLevel)
-    };
-}
-
-// The viewing rectangles for the current page, in the page's own
-// full-resolution pixel coordinates: the whole page, then a scan through
-// however many rows/columns it takes to cover the page at the reader's
-// chosen guidedZoomLevel, in reading order (left-to-right per row, or
-// right-to-left if mangaMode is on). Cheap to compute (just arithmetic on
-// the canvas's dimensions and #mainView's current size), so unlike real
-// panel detection this doesn't need to be cached.
-function getStepsForCurrentPage() {
-    const width = pageCanvas.width;
-    const height = pageCanvas.height;
-    const wholePage = { x: 0, y: 0, width, height };
-
-    const { cellWidth, cellHeight } = computeGuidedCellSize(guidedZoomLevel);
-
-    const rows = Math.min(GUIDED_GRID_CAP, Math.max(1, Math.ceil(height / cellHeight)));
-    const cols = Math.min(GUIDED_GRID_CAP, Math.max(1, Math.ceil(width / cellWidth)));
-
-    if (rows === 1 && cols === 1) return [wholePage]; // the chosen zoom already shows the whole page at once
-
-    const steps = [wholePage];
-    for (let r = 0; r < rows; r++) {
-        const y = r * cellHeight;
-        const rectHeight = Math.min(cellHeight, height - y); // the last row is whatever's left over, not a full cell
-        const rowSteps = [];
-        for (let c = 0; c < cols; c++) {
-            const x = c * cellWidth;
-            const rectWidth = Math.min(cellWidth, width - x); // same for the last column
-            rowSteps.push({ x, y, width: rectWidth, height: rectHeight });
-        }
-        // Manga reads right-to-left: start each row at its right edge and
-        // pan leftward instead of the default left-to-right sweep. Row
-        // order (top to bottom) doesn't change either way.
-        if (mangaMode) rowSteps.reverse();
-        steps.push(...rowSteps);
-    }
-    return steps;
-}
-
-// Scales and shifts the page — via a CSS `transform`, not by resizing it
-// or scrolling #mainView — so that the given rectangle (in the page's
-// full-resolution pixel coordinates) fills as much of the viewport as
-// possible, centered. Using `transform` instead of the width+scrollLeft/
-// scrollTop approach the very first version of this used is what makes
-// the pan/zoom between steps animate smoothly: `transform` is a real CSS
-// property the browser can transition (see .page-image's `transition` in
-// the <style> above); scrollLeft/scrollTop are plain DOM properties CSS
-// transitions can't touch at all, and jump instantly no matter what.
-//
-// The math: we want the rectangle's center point, in on-screen pixels, to
-// land exactly at #mainView's center. This uses the canvas's cached
-// natural (untransformed) on-screen box — see captureNaturalBox() above —
-// so that calling this mid-transition (e.g. stepping from one third of
-// the page straight to another) never has to touch the live transform
-// itself: transform-origin:0 0 means a local point at (px, py) in that
-// natural box ends up on screen at
-// `naturalBoxTopLeft + translate + scale * (px, py)`, so the needed
-// translate is just solved for algebraically from that, using whichever
-// transform was already on screen as the animation's starting point.
-function frameRect(rectX, rectY, rectWidth, rectHeight) {
-    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
-
-    const mainViewBox = mainView.getBoundingClientRect();
-    const naturalScale = naturalBox.width / pageCanvas.width;
-    const targetScale = Math.min(mainViewBox.width / rectWidth, mainViewBox.height / rectHeight) * GUIDED_FIT_MARGIN;
-    const transformScale = targetScale / naturalScale;
-
-    // The target rectangle's center, in local (untransformed, top-left
-    // relative) CSS pixels.
-    const localCenterX = (rectX + rectWidth / 2) * naturalScale;
-    const localCenterY = (rectY + rectHeight / 2) * naturalScale;
-
-    // Where we want that point to end up: dead-center of #mainView.
-    const targetScreenX = mainViewBox.left + mainViewBox.width / 2;
-    const targetScreenY = mainViewBox.top + mainViewBox.height / 2;
-
-    guidedScale = transformScale;
-    guidedTranslateX = targetScreenX - naturalBox.left - transformScale * localCenterX;
-    guidedTranslateY = targetScreenY - naturalBox.top - transformScale * localCenterY;
-    applyGuidedTransform();
-}
-
-// Undoes frameRect()'s transform, back to the normal (CSS-driven,
-// percentage-width) layout — called whenever Guided View turns off.
-function resetGuidedTransform() {
-    pageCanvas.style.transform = "";
-    pageCanvas.style.touchAction = "";
-    mainView.style.overflow = "";
-}
-
-// ----------------------------------------------------------------------
-// MANUAL PAN: Guided View's scan grid is a best guess, not real panel
-// detection (see the note above getStepsForCurrentPage()), so it won't
-// always land exactly on a panel's edges. Rather than trying to guess
-// better, this lets the reader nudge the current step's framing themselves
-// — drag/swipe with a mouse or finger, or scroll/trackpad-swipe with a
-// wheel — in any direction. It's a temporary adjustment only: moving to
-// the next/previous step or page re-frames from scratch via frameRect()
-// and overwrites it, which is the intended "reset" — there's no separate
-// undo needed, just step away and back.
-// ----------------------------------------------------------------------
-let isPanningGuidedView = false;
-let panStartX = 0;
-let panStartY = 0;
-let panStartTranslateX = 0;
-let panStartTranslateY = 0;
-
-pageCanvas.addEventListener("pointerdown", (event) => {
-    if (!guidedViewEnabled) return;
-    isPanningGuidedView = true;
-    panStartX = event.clientX;
-    panStartY = event.clientY;
-    panStartTranslateX = guidedTranslateX;
-    panStartTranslateY = guidedTranslateY;
-    pageCanvas.style.transition = "none"; // track the pointer 1:1, not eased
-    pageCanvas.style.cursor = "grabbing";
-    pageCanvas.setPointerCapture(event.pointerId);
-});
-
-pageCanvas.addEventListener("pointermove", (event) => {
-    if (!isPanningGuidedView) return;
-    guidedTranslateX = panStartTranslateX + (event.clientX - panStartX);
-    guidedTranslateY = panStartTranslateY + (event.clientY - panStartY);
-    applyGuidedTransform();
-});
-
-function endGuidedPan(event) {
-    if (!isPanningGuidedView) return;
-    isPanningGuidedView = false;
-    pageCanvas.style.transition = ""; // back to the normal eased transition for the next step move
-    pageCanvas.style.cursor = "grab";
-}
-pageCanvas.addEventListener("pointerup", endGuidedPan);
-pageCanvas.addEventListener("pointercancel", endGuidedPan);
-
-// Mouse wheel / trackpad scroll also pans, for desktop users who'd rather
-// not click-drag. Transition is disabled for the duration of active
-// scrolling (for the same 1:1-tracking reason as the drag handler above)
-// and restored a moment after scrolling stops.
-let wheelPanRestoreTimer = null;
-mainView.addEventListener("wheel", (event) => {
-    if (!guidedViewEnabled) return;
-    event.preventDefault();
-    pageCanvas.style.transition = "none";
-    guidedTranslateX -= event.deltaX;
-    guidedTranslateY -= event.deltaY;
-    applyGuidedTransform();
-    clearTimeout(wheelPanRestoreTimer);
-    wheelPanRestoreTimer = setTimeout(() => {
-        pageCanvas.style.transition = "";
-    }, 150);
-}, { passive: false });
+// How much of a screen's worth of content stays visible from one Guided
+// View step to the next (90% advance = 10% overlap), so a line sitting
+// right at the edge of the viewport doesn't get skipped entirely — the
+// same convention most e-reader/PDF "page down" gestures use.
+const GUIDED_SCROLL_OVERLAP = 0.9;
 
 // ----------------------------------------------------------------------
 // Fade-to-black transitions, used only for Guided View's page-boundary
-// crossings and mode toggle — never for stepping between sections of the
-// same page, which relies purely on frameRect()'s smooth `transform`
-// animation instead. The distinction is deliberate: within a page, this
-// should feel like one continuous camera move over the same artwork;
-// crossing into different content (a new page, or turning Guided View
-// on/off) is a real cut, and a brief fade reads as an intentional scene
-// break instead of a jarring pop — while also conveniently hiding the
-// moment a new page's image is still being decoded and drawn.
+// crossings and mode toggle — never for the automated scroll itself,
+// which is already a smooth, continuous camera move (see #mainView's
+// scroll-behavior:smooth in the <style> above). The distinction is
+// deliberate: within a page, this should feel like one continuous move
+// over the same artwork; crossing into different content (a new page, or
+// turning Guided View on/off) is a real cut, and a brief fade reads as an
+// intentional scene break instead of a jarring pop — while also
+// conveniently hiding the moment a new page's image is still being
+// decoded and drawn.
 // ----------------------------------------------------------------------
-const FADE_DURATION = 300; // ms — kept snappier than the pan/zoom transition, since this is a full blackout
+const FADE_DURATION = 300; // ms — kept snappier than the scroll animation, since this is a full blackout
 let guidedTransitionInProgress = false;
 
 function fadeOut() {
@@ -1290,28 +994,12 @@ function fadeIn() {
     });
 }
 
-// Frames the step at the given index (0-3) for the current page, and
-// updates the ‹ › buttons to reflect Guided View's boundary: unlike
-// normal mode (first/last PAGE), Guided View should only disable them at
-// the very first/last STEP of the very first/last page — plain page
-// boundaries don't apply while there are still steps left on the current
-// page.
-function showStep(index) {
-    const steps = getStepsForCurrentPage();
-    currentStepIndex = Math.max(0, Math.min(index, steps.length - 1));
-    const step = steps[currentStepIndex];
-    frameRect(step.x, step.y, step.width, step.height);
-    prevBtn.disabled = currentIndex === 0 && currentStepIndex === 0;
-    nextBtn.disabled = currentIndex === pageUrls.length - 1 && currentStepIndex === steps.length - 1;
-}
-
-// Turns Guided View on/off. Manual zoom and Guided View both drive the
-// canvas's transform/width, so only one is ever active — turning Guided
-// View on disables the zoom +/- buttons (and vice versa, they get
-// re-enabled when it's turned off). Fades through black around the
-// switch (skipped if no comic is loaded yet — nothing to see, no reason
-// to make the empty state flash) since this is a full context switch
-// between normal reading and stepped viewing, not a same-page move.
+// Turns Guided View on/off. Doesn't touch zoom or scroll position at all
+// — see the section comment above — it just flips whether Next/Prev
+// drive an automated scroll (see guidedAdvance() below) instead of a
+// plain page turn. Fades through black around the switch (skipped if no
+// comic is loaded yet — nothing to see, no reason to make the empty
+// state flash) since this is a mode switch, not a same-page move.
 async function setGuidedView(enabled) {
     if (guidedTransitionInProgress) return;
     const hasComic = pageUrls.length > 0;
@@ -1323,30 +1011,6 @@ async function setGuidedView(enabled) {
 
     guidedViewEnabled = enabled;
     guidedViewBtn.classList.toggle("active", enabled);
-    zoomOutBtn.disabled = enabled || zoomLevel <= ZOOM_MIN;
-    zoomInBtn.disabled = enabled || zoomLevel >= ZOOM_MAX;
-
-    if (enabled) {
-        currentStepIndex = 0;
-        mainView.style.overflow = "hidden"; // manual scrolling would fight with the transform-driven view
-        mainView.scrollTop = 0;
-        mainView.scrollLeft = 0;
-        pageCanvas.style.cursor = "grab"; // hints that the page can be dragged to fine-tune the framing
-        pageCanvas.style.touchAction = "none"; // let pointer events drive panning instead of the browser's own touch scrolling
-        if (hasComic) showStep(0);
-    } else {
-        resetGuidedTransform();
-        applyZoom();
-        // Recompute against plain page boundaries — showStep() may have
-        // last set these based on step position (e.g. "not disabled"
-        // because we weren't at the first/last step of page 1), which
-        // can disagree with the correct normal-mode answer for the same
-        // page (e.g. "should be disabled, this IS page 1").
-        if (hasComic) {
-            prevBtn.disabled = currentIndex === 0;
-            nextBtn.disabled = currentIndex === pageUrls.length - 1;
-        }
-    }
 
     if (hasComic) {
         await fadeIn();
@@ -1355,75 +1019,20 @@ async function setGuidedView(enabled) {
 }
 
 // ----------------------------------------------------------------------
-// GUIDED VIEW SETUP PROMPT: shown when turning Guided View ON, so the
-// reader picks a starting zoom level and reading direction (see
-// guidedZoomLevel/mangaMode above) before the scan begins. Skipped when
-// turning it back OFF (nothing to ask there) and when there's no comic
-// open yet (setGuidedView() itself already handles that empty state).
+// GUIDED VIEW SETUP PROMPT: shown when turning Guided View ON, to ask the
+// one thing that actually needs asking up front — reading direction.
+// Skipped when turning it back OFF (nothing to ask there) and when
+// there's no comic open yet (setGuidedView() itself already handles that
+// empty state).
 // ----------------------------------------------------------------------
-function updateGuidedZoomLabel() {
-    guidedZoomLabel.textContent = Math.round(guidedZoomLevel * 100) + "%";
-}
-
-// Draws a live crop of the ACTUAL current page — not a placeholder —
-// showing exactly what Guided View's first real step will look like at
-// the currently selected zoom and direction, letterboxed to fit the
-// preview box. Uses the very same computeGuidedCellSize() math
-// getStepsForCurrentPage() uses to build the real steps, so what's
-// previewed here is never a lie: it's the first cell of row 0, from the
-// left edge normally or the right edge in manga mode (the same corner
-// getStepsForCurrentPage()'s mangaMode row-reversal starts each row
-// from).
-function updateGuidedPreview() {
-    const width = pageCanvas.width;
-    const height = pageCanvas.height;
-    const { cellWidth, cellHeight } = computeGuidedCellSize(guidedZoomLevel);
-    const cropWidth = Math.min(width, cellWidth);
-    const cropHeight = Math.min(height, cellHeight);
-    const cropX = mangaModeCheckbox.checked ? Math.max(0, width - cropWidth) : 0;
-
-    const ctx = guidedPreviewCanvas.getContext("2d");
-    const boxWidth = guidedPreviewCanvas.width;
-    const boxHeight = guidedPreviewCanvas.height;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, boxWidth, boxHeight);
-
-    const fitScale = Math.min(boxWidth / cropWidth, boxHeight / cropHeight);
-    const drawWidth = cropWidth * fitScale;
-    const drawHeight = cropHeight * fitScale;
-    ctx.drawImage(
-        pageCanvas, cropX, 0, cropWidth, cropHeight,
-        (boxWidth - drawWidth) / 2, (boxHeight - drawHeight) / 2, drawWidth, drawHeight
-    );
-}
-
 function openGuidedSetup() {
-    updateGuidedZoomLabel();
     mangaModeCheckbox.checked = mangaMode;
-    updateGuidedPreview();
     guidedSetupOverlay.hidden = false;
 }
 
 function closeGuidedSetup() {
     guidedSetupOverlay.hidden = true;
 }
-
-guidedZoomOutBtn.addEventListener("click", () => {
-    guidedZoomLevel = Math.max(GUIDED_ZOOM_MIN, +(guidedZoomLevel - GUIDED_ZOOM_STEP).toFixed(2));
-    updateGuidedZoomLabel();
-    updateGuidedPreview();
-});
-
-guidedZoomInBtn.addEventListener("click", () => {
-    guidedZoomLevel = Math.min(GUIDED_ZOOM_MAX, +(guidedZoomLevel + GUIDED_ZOOM_STEP).toFixed(2));
-    updateGuidedZoomLabel();
-    updateGuidedPreview();
-});
-
-// Toggling manga mode flips which corner the preview (and the real scan)
-// starts from, so the preview needs to refresh here too, not just on
-// zoom changes.
-mangaModeCheckbox.addEventListener("change", updateGuidedPreview);
 
 // Cancelling just closes the prompt — Guided View was never actually
 // turned on, so there's nothing else to undo.
@@ -1447,17 +1056,65 @@ guidedViewBtn.addEventListener("click", () => {
     openGuidedSetup();
 });
 
-// The cached natural box (see captureNaturalBox() above) depends on the
-// canvas's rendered size, which changes if the window/viewport is resized
-// (its CSS width is a percentage of #mainView). Re-measure whenever that
-// happens, and — if Guided View is showing a step right now — re-frame it
-// against the fresh measurement, so it stays correctly positioned instead
-// of drifting out of place after a resize.
-window.addEventListener("resize", () => {
-    if (pageUrls.length === 0) return;
-    captureNaturalBox();
-    if (guidedViewEnabled) showStep(currentStepIndex);
-});
+// Tells the reader there's nothing left to auto-scroll at the current
+// zoom, via the same debug console every load/error message already
+// uses (see writeLog() further down) rather than inventing a second
+// notification style for one message.
+function guidedNudge() {
+    writeLog("Guided View: nothing to scroll here — zoom in or pan the page, then try again.");
+}
+
+// Tries to advance Guided View one step in the given direction (+1 for
+// Next, -1 for Prev) by scrolling #mainView, per the section comment
+// above. Returns true if it fully handled the move (including "nothing
+// to scroll, told the reader so") — the caller should NOT also change
+// pages in that case. Returns false when the scan has reached the edge
+// of the current page's content in that direction, meaning the caller
+// should move to the next/previous page instead.
+function guidedAdvance(direction) {
+    const canScrollX = mainView.scrollWidth > mainView.clientWidth + 1;
+    const canScrollY = mainView.scrollHeight > mainView.clientHeight + 1;
+
+    if (!canScrollX && !canScrollY) {
+        guidedNudge();
+        return true; // nothing to scroll — stay put rather than silently flipping pages
+    }
+
+    const maxScrollLeft = mainView.scrollWidth - mainView.clientWidth;
+    const maxScrollTop = mainView.scrollHeight - mainView.clientHeight;
+    const stepX = mainView.clientWidth * GUIDED_SCROLL_OVERLAP;
+    const stepY = mainView.clientHeight * GUIDED_SCROLL_OVERLAP;
+
+    // The horizontal edge each row starts from, and the one it ends on,
+    // depend on reading direction: Western starts left (0) and ends
+    // right (maxScrollLeft); manga is the mirror image.
+    const rowStartX = mangaMode ? maxScrollLeft : 0;
+    const rowEndX = mangaMode ? 0 : maxScrollLeft;
+
+    if (direction > 0) {
+        const atRowEnd = !canScrollX || Math.abs(mainView.scrollLeft - rowEndX) < 1;
+        if (!atRowEnd) {
+            mainView.scrollLeft += mangaMode ? -stepX : stepX;
+            return true;
+        }
+        const atBottom = !canScrollY || mainView.scrollTop >= maxScrollTop - 1;
+        if (atBottom) return false; // let the caller cross to the next page
+        mainView.scrollTop = Math.min(maxScrollTop, mainView.scrollTop + stepY);
+        mainView.scrollLeft = rowStartX; // back to this new row's starting edge
+        return true;
+    } else {
+        const atRowStart = !canScrollX || Math.abs(mainView.scrollLeft - rowStartX) < 1;
+        if (!atRowStart) {
+            mainView.scrollLeft += mangaMode ? stepX : -stepX;
+            return true;
+        }
+        const atTop = !canScrollY || mainView.scrollTop <= 1;
+        if (atTop) return false; // let the caller cross to the previous page
+        mainView.scrollTop = Math.max(0, mainView.scrollTop - stepY);
+        mainView.scrollLeft = rowEndX; // entering this row from its far/ending edge, matching a forward scan
+        return true;
+    }
+}
 
 // ----------------------------------------------------------------------
 // DEBUG CONSOLE: the small green-text box under the top bar.
@@ -1511,12 +1168,13 @@ function revokeAllPageUrls() {
 // function that actually changes what's on screen when you move between
 // pages — called (via goToPage() below) by goPrev()/goNext() and by
 // clicking a thumbnail. Pass { enterFromEnd: true } when arriving from
-// "previous page" while Guided View is on, so it starts at that page's
-// LAST step instead of its first (matching how you'd naturally step
-// backwards). Returns a Promise that resolves once the new page is fully
-// drawn and (in Guided View) framed — goToPage() awaits this so it knows
-// when it's safe to fade back in, rather than revealing a still-loading
-// or not-yet-framed page.
+// "previous page" while Guided View is on, so the scroll position starts
+// at the page's END (bottom, and whichever horizontal edge a forward scan
+// would have finished a row on) instead of its start — matching how
+// you'd naturally continue stepping backwards. Returns a Promise that
+// resolves once the new page is fully drawn — goToPage() awaits this so
+// it knows when it's safe to fade back in, rather than revealing a
+// still-loading page.
 function showPage(index, options = {}) {
     if (pageUrls.length === 0) return Promise.resolve();
 
@@ -1525,47 +1183,31 @@ function showPage(index, options = {}) {
     // nothing, rather than erroring).
     currentIndex = Math.max(0, Math.min(index, pageUrls.length - 1));
 
-    // Drawing the image onto the canvas happens async (the browser has to
-    // fetch/decode it first) — Guided View's step framing needs the
-    // canvas's actual pixel dimensions to do its scaling math, so it
-    // waits for that here. Manual-zoom mode doesn't need to wait, since a
-    // CSS percentage width doesn't depend on the image being ready yet —
-    // see the "if (!guidedViewEnabled)" block below, which runs
-    // immediately instead.
     const loaded = loadPageIntoCanvas(pageUrls[currentIndex]).then(() => {
-        // Refreshes the cached natural-box measurement frameRect() relies
-        // on, now that this page's actual image (and possibly different
-        // dimensions) is drawn. Safe to do here even outside Guided View,
-        // or in the middle of a Guided View page-crossing fade: either the
-        // canvas has no transform applied yet (normal mode) or the fade
-        // overlay is fully opaque (page-crossing) — see captureNaturalBox()
-        // above for why doing this mid-transition, unhidden, would be a
-        // problem instead.
-        captureNaturalBox();
+        // Keeps whatever zoom level was already set — zoom only resets
+        // when you open a brand new file (see the "resetZoom()" call in
+        // the fileInput handler below), and Guided View uses this exact
+        // same zoom rather than a system of its own (see the "GUIDED
+        // VIEW" section above).
+        applyZoom();
         if (guidedViewEnabled) {
-            const steps = getStepsForCurrentPage();
-            showStep(options.enterFromEnd ? steps.length - 1 : 0);
+            if (options.enterFromEnd) {
+                mainView.scrollTop = mainView.scrollHeight; // bottom (auto-clamped to the real max)
+                mainView.scrollLeft = mangaMode ? 0 : mainView.scrollWidth; // the row-ending edge a forward scan would have reached
+            } else {
+                mainView.scrollTop = 0;
+                mainView.scrollLeft = mangaMode ? mainView.scrollWidth : 0; // the row-starting edge
+            }
+        } else {
+            mainView.scrollTop = 0;
+            mainView.scrollLeft = 0;
         }
     }).catch(() => {
         // Error already logged inside loadPageIntoCanvas().
     });
 
-    if (!guidedViewEnabled) {
-        // Every page starts scrolled to the top-left, but keeps whatever
-        // zoom level you'd set — zoom only resets when you open a brand
-        // new file (see the "resetZoom()" call in the fileInput handler
-        // below).
-        applyZoom();
-        mainView.scrollTop = 0;
-        mainView.scrollLeft = 0;
-        // In Guided View this is set inside showStep() instead (called
-        // from the loadPageIntoCanvas().then() above), since it needs to
-        // know the new page's step boundary first — a plain page-boundary
-        // check here would wrongly disable "prev" the moment you land
-        // back on page 1 even with steps still left to go through.
-        prevBtn.disabled = currentIndex === 0;
-        nextBtn.disabled = currentIndex === pageUrls.length - 1;
-    }
+    prevBtn.disabled = currentIndex === 0;
+    nextBtn.disabled = currentIndex === pageUrls.length - 1;
 
     pageIndicator.textContent = `${currentIndex + 1} / ${pageUrls.length}`;
 
@@ -1605,30 +1247,21 @@ async function goToPage(index, options = {}) {
     guidedTransitionInProgress = false;
 }
 
-// One step backward: the previous Guided View step if there is one,
-// otherwise the previous page (entering at its last step, if Guided View
-// is on). Shared by the ‹ button, the ← arrow key, and (via goNext's
-// mirror image) consistent boundary behavior at the very first page/step.
+// One step backward: an automated scroll if Guided View is on and there's
+// still somewhere to scroll back to (see guidedAdvance() above), otherwise
+// the previous page (entering at its end, if Guided View is on, so the
+// backward scan continues smoothly instead of jumping to the top). Shared
+// by the ‹ button and the ← arrow key.
 function goPrev() {
-    if (guidedViewEnabled && currentStepIndex > 0) {
-        showStep(currentStepIndex - 1);
-        return;
-    }
+    if (guidedViewEnabled && guidedAdvance(-1)) return;
     if (currentIndex > 0) {
         goToPage(currentIndex - 1, { enterFromEnd: guidedViewEnabled });
     }
 }
 
-// One step forward: the next Guided View step if there is one, otherwise
-// the next page (entering at its first step, if Guided View is on).
+// One step forward: the mirror image of goPrev() above.
 function goNext() {
-    if (guidedViewEnabled) {
-        const steps = getStepsForCurrentPage();
-        if (currentStepIndex < steps.length - 1) {
-            showStep(currentStepIndex + 1);
-            return;
-        }
-    }
+    if (guidedViewEnabled && guidedAdvance(1)) return;
     if (currentIndex < pageUrls.length - 1) {
         goToPage(currentIndex + 1);
     }
