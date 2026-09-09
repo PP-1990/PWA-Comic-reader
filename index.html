@@ -28,6 +28,13 @@
    onnx/ort.min.js,       <- ONNX Runtime Web: runs the Guided View
    onnx/*.wasm               panel-detection model, on-device, in the
                              browser. Not written for this app.
+   onnx/file-protocol-    <- GENERATED (see the comment at its own top) —
+   assets.js                 the same WASM runtime and model above,
+                             embedded as plain JS data instead of
+                             separate files, used only when this page is
+                             opened directly as a file:// page (which
+                             blocks the normal fetch()/import()-based
+                             loading everything above this line uses).
    models/*.onnx          <- The panel-detection model itself (see the
                              "GUIDED VIEW" section in the <script> below)
                              — trained by a third party, not this app;
@@ -1103,14 +1110,68 @@ const PANEL_ROW_TOLERANCE_FRACTION = 0.5; // how close two panels' vertical cent
 
 let panelSessionPromise = null;
 
+// Appends a classic <script> tag and resolves once it's loaded — used
+// below to lazily pull in the (large) file:// fallback assets only if
+// they're actually needed, instead of always loading them up front.
+function loadScriptTag(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Failed to load " + src));
+        document.head.appendChild(script);
+    });
+}
+
+// Decodes a base64 string back into raw bytes. Used below to turn the
+// embedded copies of the WASM binary and the model back into the same
+// Uint8Array a normal fetch() would have produced.
+function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return bytes;
+}
+
 // Lazily creates (once) and reuses the inference session. numThreads is
 // forced to 1 because real WASM multithreading needs cross-origin-
 // isolation response headers (COOP/COEP), which a static host like
 // GitHub Pages doesn't send — without them, onnxruntime-web would just
 // warn and silently fall back to one thread anyway, so this skips
 // straight to that instead of letting it try and fail first.
-function getPanelSession() {
-    if (!panelSessionPromise) {
+//
+// Everything above (and the rest of this app) loads via classic <script>
+// tags specifically because file:// pages block fetch() and dynamic
+// import() of local files — but ort.min.js normally uses BOTH of those
+// internally to load its WASM runtime and the model, since it has no way
+// to know it might be running from a file:// page. When it detects that
+// case (location.protocol === "file:"), it instead pulls in
+// onnx/file-protocol-assets.js — a generated file with the same WASM
+// runtime and model data already embedded as JS strings — and feeds
+// onnxruntime-web the resulting bytes directly instead of a URL for it
+// to fetch: ort.env.wasm.wasmBinary accepts the raw WASM bytes (skipping
+// its normal fetch entirely), ort.env.wasm.wasmPaths.mjs accepts a
+// blob: URL for its small JS wrapper (built from the embedded source via
+// new Blob()+URL.createObjectURL() — unlike a file:// URL, importing a
+// blob: URL isn't restricted this way), and InferenceSession.create()
+// accepts the model's raw bytes directly instead of a URL. On a normal
+// http(s) page, none of this runs — it stays on the plain URL-based
+// loading below, so GitHub Pages / the installed PWA never pay the cost
+// of loading that ~27MB fallback file at all.
+async function getPanelSession() {
+    if (panelSessionPromise) return panelSessionPromise;
+
+    if (location.protocol === "file:") {
+        panelSessionPromise = (async () => {
+            await loadScriptTag("onnx/file-protocol-assets.js");
+            const assets = window.__ortFileProtocolAssets;
+            const mjsBlobUrl = URL.createObjectURL(new Blob([assets.mjsSource], { type: "text/javascript" }));
+            ort.env.wasm.wasmPaths = { mjs: mjsBlobUrl };
+            ort.env.wasm.wasmBinary = base64ToBytes(assets.wasmBase64);
+            ort.env.wasm.numThreads = 1;
+            return ort.InferenceSession.create(base64ToBytes(assets.modelBase64), { executionProviders: ["wasm"] });
+        })();
+    } else {
         // Must be a full absolute URL, not a plain relative string like
         // "onnx/" — the runtime loads its WASM glue via a dynamic
         // import(), and per the JS module spec a relative path with no
