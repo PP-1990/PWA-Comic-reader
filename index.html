@@ -965,6 +965,35 @@ let mangaMode = false;
 // same convention most e-reader/PDF "page down" gestures use.
 const GUIDED_SCROLL_OVERLAP = 0.9;
 
+// The scroll position guidedAdvance() below currently intends #mainView
+// to be at, tracked separately from the DOM's own live scrollLeft/
+// scrollTop because those don't reflect the truth while a smooth scroll
+// (see #mainView's scroll-behavior:smooth in the <style> above) is still
+// animating toward a target — reading them mid-animation to decide "have
+// we reached the edge yet" sees a stale, not-there-yet value and wrongly
+// concludes the answer is no, which is exactly what made Next get stuck
+// right at a row's edge instead of advancing to the next row. null means
+// "unknown, trust the live DOM value" — true right after a fresh page
+// loads, before any tracked value exists yet.
+let guidedScrollLeftTarget = null;
+let guidedScrollTopTarget = null;
+
+// Keeps the tracked target in sync with reality once scrolling has
+// actually settled — whether that's our own smooth scroll finishing, or
+// the reader manually scrolling/dragging themselves (an explicitly
+// supported way to fine-tune Guided View's position — see the section
+// comment above). Debounced so an in-flight animation's continuous
+// stream of scroll events doesn't get mistaken for "settled" partway
+// through — this only actually runs once the LAST one of those has fired.
+let guidedScrollSyncTimer = null;
+mainView.addEventListener("scroll", () => {
+    clearTimeout(guidedScrollSyncTimer);
+    guidedScrollSyncTimer = setTimeout(() => {
+        guidedScrollLeftTarget = mainView.scrollLeft;
+        guidedScrollTopTarget = mainView.scrollTop;
+    }, 150);
+});
+
 // ----------------------------------------------------------------------
 // Fade-to-black transitions, used only for Guided View's page-boundary
 // crossings and mode toggle — never for the automated scroll itself,
@@ -1011,6 +1040,12 @@ async function setGuidedView(enabled) {
 
     guidedViewEnabled = enabled;
     guidedViewBtn.classList.toggle("active", enabled);
+    // Discard any tracked scroll target from a previous Guided View
+    // session — the reader may have scrolled around freely in normal
+    // mode since then, so the next guidedAdvance() call should trust a
+    // fresh live read instead of stale bookkeeping.
+    guidedScrollLeftTarget = null;
+    guidedScrollTopTarget = null;
 
     if (hasComic) {
         await fadeIn();
@@ -1091,29 +1126,40 @@ function guidedAdvance(direction) {
     const rowStartX = mangaMode ? maxScrollLeft : 0;
     const rowEndX = mangaMode ? 0 : maxScrollLeft;
 
+    // Trust the tracked target over a live read — see its comment above.
+    const currentLeft = guidedScrollLeftTarget ?? mainView.scrollLeft;
+    const currentTop = guidedScrollTopTarget ?? mainView.scrollTop;
+
+    let newLeft = currentLeft;
+    let newTop = currentTop;
+
     if (direction > 0) {
-        const atRowEnd = !canScrollX || Math.abs(mainView.scrollLeft - rowEndX) < 1;
+        const atRowEnd = !canScrollX || Math.abs(currentLeft - rowEndX) < 1;
         if (!atRowEnd) {
-            mainView.scrollLeft += mangaMode ? -stepX : stepX;
-            return true;
+            newLeft = Math.max(0, Math.min(maxScrollLeft, currentLeft + (mangaMode ? -stepX : stepX)));
+        } else {
+            const atBottom = !canScrollY || currentTop >= maxScrollTop - 1;
+            if (atBottom) return false; // let the caller cross to the next page
+            newTop = Math.min(maxScrollTop, currentTop + stepY);
+            newLeft = rowStartX; // back to this new row's starting edge
         }
-        const atBottom = !canScrollY || mainView.scrollTop >= maxScrollTop - 1;
-        if (atBottom) return false; // let the caller cross to the next page
-        mainView.scrollTop = Math.min(maxScrollTop, mainView.scrollTop + stepY);
-        mainView.scrollLeft = rowStartX; // back to this new row's starting edge
-        return true;
     } else {
-        const atRowStart = !canScrollX || Math.abs(mainView.scrollLeft - rowStartX) < 1;
+        const atRowStart = !canScrollX || Math.abs(currentLeft - rowStartX) < 1;
         if (!atRowStart) {
-            mainView.scrollLeft += mangaMode ? stepX : -stepX;
-            return true;
+            newLeft = Math.max(0, Math.min(maxScrollLeft, currentLeft + (mangaMode ? stepX : -stepX)));
+        } else {
+            const atTop = !canScrollY || currentTop <= 1;
+            if (atTop) return false; // let the caller cross to the previous page
+            newTop = Math.max(0, currentTop - stepY);
+            newLeft = rowEndX; // entering this row from its far/ending edge, matching a forward scan
         }
-        const atTop = !canScrollY || mainView.scrollTop <= 1;
-        if (atTop) return false; // let the caller cross to the previous page
-        mainView.scrollTop = Math.max(0, mainView.scrollTop - stepY);
-        mainView.scrollLeft = rowEndX; // entering this row from its far/ending edge, matching a forward scan
-        return true;
     }
+
+    guidedScrollLeftTarget = newLeft;
+    guidedScrollTopTarget = newTop;
+    mainView.scrollLeft = newLeft;
+    mainView.scrollTop = newTop;
+    return true;
 }
 
 // ----------------------------------------------------------------------
@@ -1191,13 +1237,27 @@ function showPage(index, options = {}) {
         // VIEW" section above).
         applyZoom();
         if (guidedViewEnabled) {
-            if (options.enterFromEnd) {
-                mainView.scrollTop = mainView.scrollHeight; // bottom (auto-clamped to the real max)
-                mainView.scrollLeft = mangaMode ? 0 : mainView.scrollWidth; // the row-ending edge a forward scan would have reached
-            } else {
-                mainView.scrollTop = 0;
-                mainView.scrollLeft = mangaMode ? mainView.scrollWidth : 0; // the row-starting edge
-            }
+            const entryTop = options.enterFromEnd ? mainView.scrollHeight : 0; // bottom, or top (auto-clamped to the real max)
+            const entryLeft = options.enterFromEnd
+                ? (mangaMode ? 0 : mainView.scrollWidth) // the row-ending edge a forward scan would have reached
+                : (mangaMode ? mainView.scrollWidth : 0); // the row-starting edge
+            // This jump happens while the fade overlay is fully opaque
+            // (see goToPage()), so it should be instant, not animated —
+            // scroll-behavior:smooth would otherwise still be finishing
+            // this move visibly once the fade lifts. Toggling the inline
+            // style off and back on around a single synchronous
+            // assignment doesn't affect anything else, including the
+            // guided scroll steps that follow.
+            mainView.style.scrollBehavior = "auto";
+            mainView.scrollTop = entryTop;
+            mainView.scrollLeft = entryLeft;
+            mainView.style.scrollBehavior = "";
+            // Keep guidedAdvance()'s tracked target in sync with this
+            // jump, using the actual (clamped) result rather than the
+            // possibly-unclamped entryTop/entryLeft request — see
+            // guidedScrollLeftTarget's comment further up.
+            guidedScrollTopTarget = mainView.scrollTop;
+            guidedScrollLeftTarget = mainView.scrollLeft;
         } else {
             mainView.scrollTop = 0;
             mainView.scrollLeft = 0;
