@@ -1117,7 +1117,16 @@ function guidedAdvance(direction) {
 
     const maxScrollLeft = mainView.scrollWidth - mainView.clientWidth;
     const maxScrollTop = mainView.scrollHeight - mainView.clientHeight;
-    const stepX = mainView.clientWidth * GUIDED_SCROLL_OVERLAP;
+    // Capped at half the row's total horizontal overflow so crossing a
+    // row always takes at least two visible steps whenever there's any
+    // horizontal overflow at all. Without this, a full-viewport-sized
+    // step (the plain GUIDED_SCROLL_OVERLAP formula, still used as-is
+    // when the overflow is large) would clear a SMALL overflow — the
+    // common case at a moderate, everyday zoom level rather than a
+    // maxed-out one — in a single hop, making the row-to-row drop that
+    // immediately follows look like Guided View skipped straight to
+    // scrolling down without ever panning across.
+    const stepX = canScrollX ? Math.min(mainView.clientWidth * GUIDED_SCROLL_OVERLAP, maxScrollLeft / 2) : 0;
     const stepY = mainView.clientHeight * GUIDED_SCROLL_OVERLAP;
 
     // The horizontal edge each row starts from, and the one it ends on,
