@@ -23,18 +23,31 @@
 // the whole point of this file is to avoid re-downloading things.
 // ============================================================================
 
-const CACHE_NAME = "cbz-reader-v32";
+const CACHE_NAME = "cbz-reader-v33";
 
 // Every file the app needs in order to run at all. These all get
 // downloaded and saved to the local cache up front (see "install" below),
 // so the app can still open even with zero internet connection.
+//
+// Guided View's panel-detection model (models/manga_panel_detector_
+// fp32_1024.onnx, ~10MB) and its WASM runtime binary (onnx/ort-wasm-
+// simd-threaded.wasm, ~10.5MB) are deliberately NOT listed here — they'd
+// roughly double what every single install has to download up front, for
+// a feature plenty of people may never open. onnx/ort.min.js (the small
+// JS loader for that runtime) IS listed, since index.html always loads
+// it as a plain <script> tag regardless of whether Guided View gets
+// used. The two large files still end up cached, just lazily — the
+// generic "fetch" handler below caches anything it successfully
+// fetches, so the first time someone actually opens Guided View, those
+// files get saved for every use after that, online or off.
 const APP_SHELL = [
     "./index.html",
     "./manifest.json",
     "./jszip.min.js",
     "./icons/icon-192.png",
     "./icons/icon-512.png",
-    "./unrar/unrar-bundle.js"
+    "./unrar/unrar-bundle.js",
+    "./onnx/ort.min.js"
 ];
 
 // Runs once, the first time this exact version of sw.js is loaded (i.e.

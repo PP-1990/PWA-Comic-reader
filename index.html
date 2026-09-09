@@ -25,6 +25,14 @@
    unrar/unrar-bundle.js  <- A third-party library that knows how to read
                              .rar/.cbr files. Also not written for this app
                              (see the big comment at the top of that file).
+   onnx/ort.min.js,       <- ONNX Runtime Web: runs the Guided View
+   onnx/*.wasm               panel-detection model, on-device, in the
+                             browser. Not written for this app.
+   models/*.onnx          <- The panel-detection model itself (see the
+                             "GUIDED VIEW" section in the <script> below)
+                             — trained by a third party, not this app;
+                             licensed AGPL-3.0, which is why this whole
+                             project is too (see LICENSE).
    manifest.json          <- Tells the browser this app's name/icon, so it
                              can be "installed" like a real app.
    sw.js                  <- The "service worker": lets the app keep
@@ -64,6 +72,16 @@
      the main thread (no Worker, no fetch) so .cbr/.rar works even when this
      page is opened directly as a file, with no server. -->
 <script src="unrar/unrar-bundle.js"></script>
+<!-- ONNX Runtime Web (vendored locally, same reasoning as the two above) —
+     runs the Guided View panel-detection model (see "GUIDED VIEW" further
+     down, and models/manga_panel_detector_fp32_1024.onnx) entirely
+     on-device. Unlike JSZip/unrar above, this DOES use fetch() internally
+     to load its .wasm binary and the model file, so — unlike the rest of
+     this app — Guided View's panel detection specifically needs the page
+     to be served over http(s) (GitHub Pages, or any local dev server);
+     opening index.html directly as a file:// page still works for
+     everything else, just not that one feature. -->
+<script src="onnx/ort.min.js"></script>
 
 <style>
     /* Makes an element's declared width/height include its padding and
@@ -330,11 +348,10 @@
     /* The big area to the right of the sidebar where the current page is
        actually shown. It scrolls (both directions) for whatever doesn't
        fit — e.g. a very tall page, or any page once you've zoomed in.
-       scroll-behavior:smooth means Guided View's automated pans (which
-       just assign mainView.scrollTop/scrollLeft directly — see
-       guidedAdvance() in the <script>) animate instead of jumping; it has
-       no effect on ordinary wheel/touch/drag scrolling, which is already
-       smooth on its own. */
+       Guided View instead pans via a CSS `transform` on the canvas itself
+       (see frameRect() in the <script>), so it switches this to
+       overflow:hidden while active — manual scrolling would otherwise
+       fight with the transform-driven view. */
     #mainView {
         flex: 1;
         min-width: 0;
@@ -343,7 +360,6 @@
         align-items: stretch;
         overflow-y: auto;
         overflow-x: auto;
-        scroll-behavior: smooth;
         padding: 6px;
         position: relative;
     }
@@ -356,15 +372,22 @@
         margin: auto;
     }
 
-    /* Wraps the page canvas. width:100% + height:auto is the "natural"
-       fit-to-width layout normal reading starts at; the zoom +/- controls
-       resize it from there by changing this width percentage (see
-       applyZoom() in the <script>) — Guided View uses that exact same
-       sizing, it just automates scrolling around it instead of adding a
-       zoom mechanism of its own. This used to be an <img>; it's a
-       <canvas> now so image data can be read directly if a future feature
-       needs it — canvas sizing/scaling behaves the same as img did for
-       everything else here. */
+    /* Wraps the page canvas. In normal/zoom mode this is just a
+       full-width, auto-sized pass-through (no visual effect of its own).
+       Guided View animates a CSS transform on the image directly (see
+       frameRect() in the <script>), so it needs no special sizing here —
+       width:100% + height:auto is the same "natural" layout used for
+       normal reading and manual zoom; Guided View's pan/zoom is purely a
+       visual overlay on top of that, via `transform`, which — unlike
+       scrollLeft/scrollTop — is a real CSS property the browser can
+       animate smoothly, and unlike a scroll position can center a
+       detected panel that's smaller than the viewport in either
+       dimension. transform-origin:0 0 makes the transform math in
+       frameRect() (which treats the image's own top-left corner as the
+       zero point) match what actually gets drawn. This used to be an
+       <img>; it's a <canvas> now so the panel-detection model can read
+       its actual pixels — canvas sizing/scaling behaves the same as img
+       did for everything else here. */
     .page-image {
         width: 100%;
         height: auto;
@@ -372,6 +395,8 @@
         margin: 0 auto;
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+        transform-origin: 0 0;
+        transition: transform 550ms cubic-bezier(0.4, 0, 0.2, 1);
         cursor: zoom-in;
     }
 
@@ -391,10 +416,18 @@
         pointer-events: none;
         transition: opacity 300ms ease;
         z-index: 400;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
-    /* The "pick a starting zoom / reading direction" prompt shown when
-       turning Guided View on — see openGuidedSetup() in the <script>.
+    #guidedFadeStatus {
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 14px;
+    }
+
+    /* The "reading direction" prompt shown when turning Guided View on —
+       see openGuidedSetup() in the <script>.
        Sits above the fade overlay (higher z-index) so it's never hidden
        behind a fade-to-black, and unlike the fade overlay it needs actual
        clicks, so pointer-events stay at their default (auto). */
@@ -751,16 +784,22 @@
 
 <!-- Full-screen fade-to-black overlay for Guided View's page-boundary and
      mode-toggle transitions — see fadeOut()/fadeIn() in the <script>. -->
-<div id="guidedFadeOverlay"></div>
+<div id="guidedFadeOverlay">
+    <!-- Shown only while a page's panels are being detected (see
+         detectPanelsForPage() in the <script>) — text-only, sits on top
+         of the black fade so a first-time model load / slower device
+         doesn't look like the app has frozen. -->
+    <span id="guidedFadeStatus"></span>
+</div>
 
 <!-- Guided View setup prompt: shown when turning Guided View ON, to ask
-     the one thing that actually needs asking — reading direction. Zoom
-     and starting position aren't set here; see openGuidedSetup() and the
-     "GUIDED VIEW" section comment in the <script> below. -->
+     the one thing that actually needs asking — reading direction. See
+     openGuidedSetup() and the "GUIDED VIEW" section comment in the
+     <script> below. -->
 <div id="guidedSetupOverlay" hidden>
     <div id="guidedSetupBox">
         <h2>Guided View</h2>
-        <p id="guidedSetupHint">Uses your current zoom and scroll position as the starting point — set those first, then Guided View takes over panning from there.</p>
+        <p id="guidedSetupHint">Finds each panel automatically and pans through them in reading order. The first page takes a few seconds to analyze — after that it's instant.</p>
         <label id="mangaModeRow">
             <input type="checkbox" id="mangaModeCheckbox">
             Reading manga? (right to left)
@@ -791,6 +830,7 @@ const sidebarNext = document.getElementById("sidebarNext");
 const mainView = document.getElementById("mainView");
 const emptyState = document.getElementById("emptyState");
 const fadeOverlay = document.getElementById("guidedFadeOverlay");
+const guidedFadeStatus = document.getElementById("guidedFadeStatus");
 const guidedSetupOverlay = document.getElementById("guidedSetupOverlay");
 const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
 const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
@@ -858,16 +898,17 @@ let zoomLevel = ZOOM_DEFAULT;
 
 // Re-applies the current zoomLevel to the page canvas and updates the
 // +/- buttons' enabled/disabled state and the "100%" label text to match.
-// Called every time zoomLevel changes. Stays fully live during Guided
-// View too — there's no separate guided zoom level any more, Guided View
-// just automates scrolling around whatever zoom this sets (see the
-// "GUIDED VIEW" section further down), so the reader can freely zoom
-// in/out mid-scan the same as normal reading.
+// Called every time zoomLevel changes. Does nothing to size/position
+// while Guided View is active, since that drives the canvas's transform
+// itself instead (see frameRect() in the "GUIDED VIEW" section) —
+// changing this CSS width mid-scan would silently invalidate frameRect()'s
+// cached natural-box measurement, so the +/- buttons are disabled in
+// that state (see setGuidedView()) and this shouldn't normally run then.
 function applyZoom() {
     pageCanvas.style.width = (zoomLevel * 100) + "%";
     zoomLevelLabel.textContent = Math.round(zoomLevel * 100) + "%";
-    zoomOutBtn.disabled = zoomLevel <= ZOOM_MIN;
-    zoomInBtn.disabled = zoomLevel >= ZOOM_MAX;
+    zoomOutBtn.disabled = guidedViewEnabled || zoomLevel <= ZOOM_MIN;
+    zoomInBtn.disabled = guidedViewEnabled || zoomLevel >= ZOOM_MAX;
     pageCanvas.style.cursor = zoomLevel >= ZOOM_MAX ? "zoom-out" : "zoom-in";
 }
 
@@ -895,14 +936,18 @@ zoomOutBtn.addEventListener("click", () => {
     if (zoomLevel <= ZOOM_DEFAULT) mainView.scrollLeft = 0;
 });
 
-// Clicking the "100%" label itself resets zoom back to normal.
+// Clicking the "100%" label itself resets zoom back to normal (ignored
+// while Guided View is on, since it isn't using the manual zoom level).
 zoomLevelLabel.addEventListener("click", () => {
+    if (guidedViewEnabled) return;
     resetZoom();
 });
 
 // Double-clicking/double-tapping the page toggles between the normal size
-// and a 2x close-up, as a quicker shortcut than the +/- buttons.
+// and a 2x close-up, as a quicker shortcut than the +/- buttons (also
+// ignored while Guided View is on).
 pageCanvas.addEventListener("dblclick", () => {
+    if (guidedViewEnabled) return;
     if (zoomLevel !== ZOOM_DEFAULT) {
         resetZoom();
     } else {
@@ -924,90 +969,327 @@ sidebarNext.addEventListener("click", () => {
 });
 
 // ----------------------------------------------------------------------
-// GUIDED VIEW: automates panning through a page you've already zoomed in
-// on, instead of adding a separate zoom system of its own. There's no
-// "guided zoom level" to set — Next/Prev just scrolls #mainView using
-// whatever zoom and scroll position are already there (see the "ZOOM"
-// section above), the same way the reader would scroll it by hand.
+// GUIDED VIEW: runs a small object-detection model (see
+// models/manga_panel_detector_fp32_1024.onnx, loaded via ONNX Runtime
+// Web — see onnx/ort.min.js in <head>) on each page to find its actual
+// panel boxes, then pans/zooms through them one at a time in reading
+// order — top row to bottom row, left to right within a row (or right to
+// left in manga mode). This replaces two earlier approaches: a purely
+// geometric grid (fixed thirds, then an adaptive rows/columns split) that
+// never actually knew where the panels were, and — before that — a
+// pixel/gutter-color heuristic that tried to guess panel edges without a
+// trained model and broke on splash pages and bleeding art. A real
+// detection model is what those approaches were always missing.
 //
-// This is deliberately NOT trying to detect real panel boundaries — an
-// earlier version of this feature analyzed each page's actual pixels to
-// guess where panels were, which worked on clean grid comics but could
-// misfire on splash pages or layouts with no hard gutter. This version
-// doesn't look at the content at all: every Next/Prev just checks what
-// #mainView actually has left to scroll RIGHT NOW (via its own
-// scrollWidth/scrollHeight vs clientWidth/clientHeight — never
-// precomputed or cached, since the reader can change zoom or scroll
-// manually at any moment) and reacts to exactly that:
-//   - Neither axis has anything left to scroll (the whole page already
-//     fits on screen at the current zoom) — nothing to automate; a
-//     message asks the reader to zoom in or pan first.
-//   - Only the vertical axis overflows (the common case at 100%/fit-to-
-//     width zoom on a tall page) — scroll straight down; reaching the
-//     bottom moves to the next page.
-//   - Both axes overflow (zoomed in far enough that even one row is
-//     wider than the screen) — pan across the row first (left to right,
-//     or right to left in manga mode), only dropping to the next row
-//     once that row's far edge is reached; reaching both the row's far
-//     edge and the bottom of the page moves to the next page.
-// Reading backward (Prev) mirrors all of this, arriving at a new page
-// from its OTHER end — bottom, and whichever horizontal edge a forward
-// scan would have ended that row on — instead of its start, so stepping
-// backward across a page boundary continues smoothly.
+// The model only knows two classes — {0: 'frame', 1: 'text'} — and only
+// 'frame' (the panel boxes themselves) is used here; see
+// PANEL_CLASS_FRAME and parseDetections() below. Detected boxes are
+// grouped into reading-order ROWS by their vertical position (with a
+// tolerance, so panels that aren't pixel-perfectly aligned still end up
+// in the same row — see groupPanelsIntoRows()), each row sorted
+// left-to-right; a page where nothing is detected (a blank/cover page,
+// or the model failing to load) falls back to a single "row" containing
+// the whole page, so Guided View always has at least one step per page.
+// Detection results are cached per page (detectedPanelRowsByPage) so a
+// page is only ever analyzed once per file — the first page you visit in
+// Guided View takes a moment (the model + its ~10MB WASM runtime need to
+// load too, the first time), every page after that is instant.
 // ----------------------------------------------------------------------
 
 let guidedViewEnabled = false;
 let mangaMode = false;
-
-// How much of a screen's worth of content stays visible from one Guided
-// View step to the next (90% advance = 10% overlap), so a line sitting
-// right at the edge of the viewport doesn't get skipped entirely — the
-// same convention most e-reader/PDF "page down" gestures use.
-const GUIDED_SCROLL_OVERLAP = 0.9;
-
-// The scroll position guidedAdvance() below currently intends #mainView
-// to be at, tracked separately from the DOM's own live scrollLeft/
-// scrollTop because those don't reflect the truth while a smooth scroll
-// (see #mainView's scroll-behavior:smooth in the <style> above) is still
-// animating toward a target — reading them mid-animation to decide "have
-// we reached the edge yet" sees a stale, not-there-yet value and wrongly
-// concludes the answer is no, which is exactly what made Next get stuck
-// right at a row's edge instead of advancing to the next row. null means
-// "unknown, trust the live DOM value" — true right after a fresh page
-// loads, before any tracked value exists yet.
-let guidedScrollLeftTarget = null;
-let guidedScrollTopTarget = null;
-
-// Keeps the tracked target in sync with reality once scrolling has
-// actually settled — whether that's our own smooth scroll finishing, or
-// the reader manually scrolling/dragging themselves (an explicitly
-// supported way to fine-tune Guided View's position — see the section
-// comment above). Debounced so an in-flight animation's continuous
-// stream of scroll events doesn't get mistaken for "settled" partway
-// through — this only actually runs once the LAST one of those has fired.
-let guidedScrollSyncTimer = null;
-mainView.addEventListener("scroll", () => {
-    clearTimeout(guidedScrollSyncTimer);
-    guidedScrollSyncTimer = setTimeout(() => {
-        guidedScrollLeftTarget = mainView.scrollLeft;
-        guidedScrollTopTarget = mainView.scrollTop;
-    }, 150);
-});
-
-// ----------------------------------------------------------------------
-// Fade-to-black transitions, used only for Guided View's page-boundary
-// crossings and mode toggle — never for the automated scroll itself,
-// which is already a smooth, continuous camera move (see #mainView's
-// scroll-behavior:smooth in the <style> above). The distinction is
-// deliberate: within a page, this should feel like one continuous move
-// over the same artwork; crossing into different content (a new page, or
-// turning Guided View on/off) is a real cut, and a brief fade reads as an
-// intentional scene break instead of a jarring pop — while also
-// conveniently hiding the moment a new page's image is still being
-// decoded and drawn.
-// ----------------------------------------------------------------------
-const FADE_DURATION = 300; // ms — kept snappier than the scroll animation, since this is a full blackout
 let guidedTransitionInProgress = false;
+
+// The panel list currently being stepped through (already flattened into
+// reading order for the current page and mangaMode — see
+// flattenPanelRows() below) and where Guided View is within it.
+let currentPanelList = [];
+let currentPanelIndex = 0;
+
+// Row-grouped "frame" boxes per page index, in the page's own full-
+// resolution pixel coordinates, in canonical (Western, left-to-right)
+// reading order — mangaMode is applied on top of this at read time (see
+// flattenPanelRows()), not baked in here, so toggling it doesn't require
+// re-running detection. Cleared whenever a new file is opened (see the
+// fileInput handler further down) — page index 0 of a new file has
+// nothing to do with whatever was cached for page index 0 of the last one.
+const detectedPanelRowsByPage = new Map();
+
+// The canvas's natural (untransformed) on-screen box, cached so frameRect()
+// never has to measure it by touching the live transform mid-transition —
+// see captureNaturalBox() below for why that matters.
+let cachedNaturalBox = null;
+
+// The three numbers that make up the canvas's current Guided View
+// transform, kept as their own variables (rather than re-parsing them
+// back out of the `transform` CSS string) so frameRect() can read and
+// set them directly through applyGuidedTransform().
+let guidedTranslateX = 0;
+let guidedTranslateY = 0;
+let guidedScale = 1;
+
+function applyGuidedTransform() {
+    pageCanvas.style.transform = `translate(${guidedTranslateX}px, ${guidedTranslateY}px) scale(${guidedScale})`;
+}
+
+// Measures the canvas's natural (untransformed) on-screen box and caches
+// it for frameRect() to use. This briefly swaps the transform to "none",
+// forces layout so that's actually applied, measures, then swaps it right
+// back — all synchronously, so nothing ever gets painted in between and
+// there's no visible flicker, AS LONG AS this only runs at a moment when
+// the canvas isn't in the middle of visibly transitioning: right after a
+// new page image loads (before that page has been framed yet), or while
+// the fade overlay is fully opaque. Calling it mid-transition would make
+// the browser treat "none" as a real, completed state, so a transition
+// applying a NEW transform right after would visibly animate from "none"
+// (the whole, unscaled page) instead of from wherever it actually was.
+function captureNaturalBox() {
+    const previousTransition = pageCanvas.style.transition;
+    const previousTransform = pageCanvas.style.transform;
+    pageCanvas.style.transition = "none";
+    pageCanvas.style.transform = "none";
+    void pageCanvas.offsetHeight;
+    cachedNaturalBox = pageCanvas.getBoundingClientRect();
+    pageCanvas.style.transform = previousTransform;
+    void pageCanvas.offsetHeight;
+    pageCanvas.style.transition = previousTransition;
+}
+
+const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a panel's edges aren't flush against the screen edge
+
+// Scales and shifts the page — via a CSS `transform`, not by resizing it
+// or scrolling #mainView — so that the given rectangle (in the page's
+// full-resolution pixel coordinates) fills as much of the viewport as
+// possible, centered. `transform` is a real CSS property the browser can
+// transition (see .page-image's `transition` in the <style> above) and,
+// unlike a scroll position, can center a box that's smaller than the
+// viewport in either dimension — exactly what a detected panel usually
+// is. See captureNaturalBox() above for why this uses the CACHED natural
+// box rather than measuring fresh every call.
+function frameRect(rectX, rectY, rectWidth, rectHeight) {
+    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
+
+    const mainViewBox = mainView.getBoundingClientRect();
+    const naturalScale = naturalBox.width / pageCanvas.width;
+    const targetScale = Math.min(mainViewBox.width / rectWidth, mainViewBox.height / rectHeight) * GUIDED_FIT_MARGIN;
+    const transformScale = targetScale / naturalScale;
+
+    const localCenterX = (rectX + rectWidth / 2) * naturalScale;
+    const localCenterY = (rectY + rectHeight / 2) * naturalScale;
+    const targetScreenX = mainViewBox.left + mainViewBox.width / 2;
+    const targetScreenY = mainViewBox.top + mainViewBox.height / 2;
+
+    guidedScale = transformScale;
+    guidedTranslateX = targetScreenX - naturalBox.left - transformScale * localCenterX;
+    guidedTranslateY = targetScreenY - naturalBox.top - transformScale * localCenterY;
+    applyGuidedTransform();
+}
+
+// Undoes frameRect()'s transform, back to the normal (CSS-driven,
+// percentage-width) layout — called whenever Guided View turns off.
+function resetGuidedTransform() {
+    pageCanvas.style.transform = "";
+    mainView.style.overflow = "";
+}
+
+// ----------------------------------------------------------------------
+// PANEL DETECTION
+// ----------------------------------------------------------------------
+const PANEL_MODEL_URL = "models/manga_panel_detector_fp32_1024.onnx";
+const PANEL_INPUT_SIZE = 1024; // the model's fixed input size (imgsz) — see its own embedded export metadata
+const PANEL_CLASS_FRAME = 0;   // {0: 'frame', 1: 'text'} — only 'frame' boxes are panels; 'text' (speech bubbles etc.) is ignored
+const PANEL_CONFIDENCE_THRESHOLD = 0.25;
+const PANEL_ROW_TOLERANCE_FRACTION = 0.5; // how close two panels' vertical centers must be (relative to average panel height) to count as "the same row"
+
+let panelSessionPromise = null;
+
+// Lazily creates (once) and reuses the inference session. numThreads is
+// forced to 1 because real WASM multithreading needs cross-origin-
+// isolation response headers (COOP/COEP), which a static host like
+// GitHub Pages doesn't send — without them, onnxruntime-web would just
+// warn and silently fall back to one thread anyway, so this skips
+// straight to that instead of letting it try and fail first.
+function getPanelSession() {
+    if (!panelSessionPromise) {
+        // Must be a full absolute URL, not a plain relative string like
+        // "onnx/" — the runtime loads its WASM glue via a dynamic
+        // import(), and per the JS module spec a relative path with no
+        // leading "./"/"/" is a "bare specifier" there (unlike in
+        // fetch(), where it just resolves against the page URL fine),
+        // which throws "Failed to resolve module specifier" instead of
+        // silently working.
+        ort.env.wasm.wasmPaths = new URL("onnx/", document.baseURI).href;
+        ort.env.wasm.numThreads = 1;
+        panelSessionPromise = ort.InferenceSession.create(PANEL_MODEL_URL, { executionProviders: ["wasm"] });
+    }
+    return panelSessionPromise;
+}
+
+// A single "frame" box covering the whole page — the fallback used when
+// detection finds nothing (or fails) for a page, so Guided View always
+// has at least one step to show instead of getting stuck with none.
+function wholePageBox() {
+    return { x: 0, y: 0, width: pageCanvas.width, height: pageCanvas.height };
+}
+
+// Draws the current page onto a PANEL_INPUT_SIZE square canvas, scaled
+// to fit and letterboxed (padded with neutral gray) rather than
+// stretched — matching how a fixed-imgsz model like this one expects to
+// receive non-square images. Returns the input tensor plus the numbers
+// needed to map its output coordinates back to the page's own full-
+// resolution pixel space.
+function preprocessPageForDetection() {
+    const srcWidth = pageCanvas.width;
+    const srcHeight = pageCanvas.height;
+    const scale = Math.min(PANEL_INPUT_SIZE / srcWidth, PANEL_INPUT_SIZE / srcHeight);
+    const drawWidth = Math.round(srcWidth * scale);
+    const drawHeight = Math.round(srcHeight * scale);
+    const padX = Math.floor((PANEL_INPUT_SIZE - drawWidth) / 2);
+    const padY = Math.floor((PANEL_INPUT_SIZE - drawHeight) / 2);
+
+    const letterboxed = document.createElement("canvas");
+    letterboxed.width = PANEL_INPUT_SIZE;
+    letterboxed.height = PANEL_INPUT_SIZE;
+    const ctx = letterboxed.getContext("2d");
+    ctx.fillStyle = "#727272"; // a neutral mid-gray pad, the standard YOLO letterbox convention
+    ctx.fillRect(0, 0, PANEL_INPUT_SIZE, PANEL_INPUT_SIZE);
+    ctx.drawImage(pageCanvas, 0, 0, srcWidth, srcHeight, padX, padY, drawWidth, drawHeight);
+
+    const { data } = ctx.getImageData(0, 0, PANEL_INPUT_SIZE, PANEL_INPUT_SIZE);
+    const pixelCount = PANEL_INPUT_SIZE * PANEL_INPUT_SIZE;
+    // CHW (channel-planar), not HWC — the layout ONNX/PyTorch models expect.
+    const chw = new Float32Array(pixelCount * 3);
+    for (let i = 0; i < pixelCount; i++) {
+        chw[i] = data[i * 4] / 255;
+        chw[pixelCount + i] = data[i * 4 + 1] / 255;
+        chw[pixelCount * 2 + i] = data[i * 4 + 2] / 255;
+    }
+    return { tensor: new ort.Tensor("float32", chw, [1, 3, PANEL_INPUT_SIZE, PANEL_INPUT_SIZE]), scale, padX, padY };
+}
+
+// Converts the model's raw output into "frame"-class boxes in the page's
+// own full-resolution pixel space. The model was exported end-to-end
+// with nms:false (see its embedded metadata) — meaning NMS/duplicate
+// suppression is already baked into the graph itself (the TopK/
+// GatherElements ops visible when inspecting the file), not something
+// this needs to do again — so output0 is already a clean list of final
+// detections: one row per detection, [x1, y1, x2, y2, confidence,
+// classId], in the padded PANEL_INPUT_SIZE square's own pixel space.
+function parseDetections(output, scale, padX, padY) {
+    const data = output.data;
+    const dims = output.dims;
+    const numDetections = dims[dims.length - 2];
+    const rowLength = dims[dims.length - 1];
+    const boxes = [];
+    for (let i = 0; i < numDetections; i++) {
+        const base = i * rowLength;
+        const confidence = data[base + 4];
+        const classId = Math.round(data[base + 5]);
+        if (confidence < PANEL_CONFIDENCE_THRESHOLD || classId !== PANEL_CLASS_FRAME) continue;
+
+        const x1 = Math.max(0, (data[base] - padX) / scale);
+        const y1 = Math.max(0, (data[base + 1] - padY) / scale);
+        const x2 = Math.min(pageCanvas.width, (data[base + 2] - padX) / scale);
+        const y2 = Math.min(pageCanvas.height, (data[base + 3] - padY) / scale);
+        const width = x2 - x1;
+        const height = y2 - y1;
+        if (width <= 0 || height <= 0) continue; // a detection that fell entirely outside the real page after un-padding
+
+        boxes.push({ x: x1, y: y1, width, height });
+    }
+    return boxes;
+}
+
+// Groups detected boxes into reading-order rows: sorts by vertical
+// center, then walks through assigning each box to the current row if
+// its center is within PANEL_ROW_TOLERANCE_FRACTION (relative to the
+// average panel height) of that row's running average center, otherwise
+// starting a new row — real panels are rarely pixel-perfectly aligned,
+// so a hard equality check would wrongly split one visual row into many.
+// Each row is then sorted left-to-right. Reading direction (manga vs
+// Western) is deliberately NOT applied here — see flattenPanelRows().
+function groupPanelsIntoRows(boxes) {
+    const sorted = boxes.slice().sort((a, b) => (a.y + a.height / 2) - (b.y + b.height / 2));
+    const avgHeight = boxes.reduce((sum, b) => sum + b.height, 0) / boxes.length;
+    const tolerance = avgHeight * PANEL_ROW_TOLERANCE_FRACTION;
+
+    const rows = [];
+    let currentRow = [sorted[0]];
+    let rowCenterSum = sorted[0].y + sorted[0].height / 2;
+    for (let i = 1; i < sorted.length; i++) {
+        const box = sorted[i];
+        const boxCenter = box.y + box.height / 2;
+        if (Math.abs(boxCenter - rowCenterSum / currentRow.length) <= tolerance) {
+            currentRow.push(box);
+            rowCenterSum += boxCenter;
+        } else {
+            rows.push(currentRow);
+            currentRow = [box];
+            rowCenterSum = boxCenter;
+        }
+    }
+    rows.push(currentRow);
+    rows.forEach(row => row.sort((a, b) => a.x - b.x));
+    return rows;
+}
+
+// Runs detection for the given page (cached — see detectedPanelRowsByPage
+// above) and returns its row-grouped "frame" boxes. Never throws: a
+// loading/inference failure is logged to the debug console and treated
+// the same as "nothing detected" (falls back to wholePageBox()), so a
+// single bad page or a model that fails to load degrades Guided View to
+// "one step per page" instead of breaking it outright.
+async function detectPanelsForPage(pageIndex) {
+    if (detectedPanelRowsByPage.has(pageIndex)) return detectedPanelRowsByPage.get(pageIndex);
+
+    let rows;
+    try {
+        const session = await getPanelSession();
+        const { tensor, scale, padX, padY } = preprocessPageForDetection();
+        const outputs = await session.run({ [session.inputNames[0]]: tensor });
+        const boxes = parseDetections(outputs[session.outputNames[0]], scale, padX, padY);
+        rows = boxes.length > 0 ? groupPanelsIntoRows(boxes) : [[wholePageBox()]];
+    } catch (err) {
+        writeLog("Guided View: panel detection failed (" + err.message + ") — showing the whole page instead.");
+        rows = [[wholePageBox()]];
+    }
+
+    detectedPanelRowsByPage.set(pageIndex, rows);
+    return rows;
+}
+
+// Flattens a page's row-grouped panels into the actual reading-order
+// list Guided View steps through, applying mangaMode here rather than
+// baking it into detection: manga reads right-to-left, so each row's
+// left-to-right order (groupPanelsIntoRows()'s canonical order) is
+// simply reversed — row order (top to bottom) doesn't change either way.
+function flattenPanelRows(rows) {
+    const result = [];
+    for (const row of rows) result.push(...(mangaMode ? row.slice().reverse() : row));
+    return result;
+}
+
+// Ensures the given page's panels are detected, and returns them already
+// flattened into the current reading order — the one function
+// showPage()/setGuidedView() below actually need.
+async function ensurePanelsForPage(pageIndex) {
+    return flattenPanelRows(await detectPanelsForPage(pageIndex));
+}
+
+// ----------------------------------------------------------------------
+// Fade-to-black transitions, used for Guided View's page-boundary
+// crossings and mode toggle — never for stepping between panels on the
+// same page, which relies purely on frameRect()'s smooth `transform`
+// animation instead. The distinction is deliberate: within a page, this
+// should feel like one continuous camera move over the same artwork;
+// crossing into different content (a new page, or turning Guided View
+// on/off) is a real cut, and a brief fade reads as an intentional scene
+// break instead of a jarring pop — while also conveniently hiding both
+// the moment a new page's image is still being decoded and drawn, and
+// (via guidedFadeStatus — see detectPanelsForPage() above) the moment
+// its panels are still being detected.
+// ----------------------------------------------------------------------
+const FADE_DURATION = 300; // ms — kept snappier than the pan/zoom transition, since this is a full blackout
 
 function fadeOut() {
     return new Promise(resolve => {
@@ -1023,12 +1305,34 @@ function fadeIn() {
     });
 }
 
-// Turns Guided View on/off. Doesn't touch zoom or scroll position at all
-// — see the section comment above — it just flips whether Next/Prev
-// drive an automated scroll (see guidedAdvance() below) instead of a
-// plain page turn. Fades through black around the switch (skipped if no
-// comic is loaded yet — nothing to see, no reason to make the empty
-// state flash) since this is a mode switch, not a same-page move.
+// Frames the panel at the given index in currentPanelList, and updates
+// the ‹ › buttons to reflect Guided View's boundary: unlike normal mode
+// (first/last PAGE), Guided View should only disable them at the very
+// first/last PANEL of the very first/last page. Pass instant:true for a
+// jump that happens behind the opaque fade overlay (a fresh page, or
+// Guided View just turning on) so it's immediate rather than still
+// mid-animation once the fade lifts.
+function showGuidedPanel(index, instant) {
+    currentPanelIndex = Math.max(0, Math.min(index, currentPanelList.length - 1));
+    const panel = currentPanelList[currentPanelIndex];
+    if (instant) {
+        const previousTransition = pageCanvas.style.transition;
+        pageCanvas.style.transition = "none";
+        frameRect(panel.x, panel.y, panel.width, panel.height);
+        void pageCanvas.offsetHeight;
+        pageCanvas.style.transition = previousTransition;
+    } else {
+        frameRect(panel.x, panel.y, panel.width, panel.height);
+    }
+    prevBtn.disabled = currentIndex === 0 && currentPanelIndex === 0;
+    nextBtn.disabled = currentIndex === pageUrls.length - 1 && currentPanelIndex === currentPanelList.length - 1;
+}
+
+// Turns Guided View on/off. Fades through black around the switch
+// (skipped if no comic is loaded yet — nothing to see, no reason to make
+// the empty state flash), since detecting the current page's panels (if
+// not already cached) and jumping to the first one is a real context
+// switch, not a same-page move.
 async function setGuidedView(enabled) {
     if (guidedTransitionInProgress) return;
     const hasComic = pageUrls.length > 0;
@@ -1040,12 +1344,27 @@ async function setGuidedView(enabled) {
 
     guidedViewEnabled = enabled;
     guidedViewBtn.classList.toggle("active", enabled);
-    // Discard any tracked scroll target from a previous Guided View
-    // session — the reader may have scrolled around freely in normal
-    // mode since then, so the next guidedAdvance() call should trust a
-    // fresh live read instead of stale bookkeeping.
-    guidedScrollLeftTarget = null;
-    guidedScrollTopTarget = null;
+    zoomOutBtn.disabled = enabled || zoomLevel <= ZOOM_MIN;
+    zoomInBtn.disabled = enabled || zoomLevel >= ZOOM_MAX;
+
+    if (enabled) {
+        mainView.style.overflow = "hidden"; // manual scrolling would fight with the transform-driven view
+        mainView.scrollTop = 0;
+        mainView.scrollLeft = 0;
+        if (hasComic) {
+            guidedFadeStatus.textContent = detectedPanelRowsByPage.has(currentIndex) ? "" : "Detecting panels…";
+            currentPanelList = await ensurePanelsForPage(currentIndex);
+            guidedFadeStatus.textContent = "";
+            showGuidedPanel(0, true);
+        }
+    } else {
+        resetGuidedTransform();
+        applyZoom();
+        if (hasComic) {
+            prevBtn.disabled = currentIndex === 0;
+            nextBtn.disabled = currentIndex === pageUrls.length - 1;
+        }
+    }
 
     if (hasComic) {
         await fadeIn();
@@ -1091,85 +1410,17 @@ guidedViewBtn.addEventListener("click", () => {
     openGuidedSetup();
 });
 
-// Tells the reader there's nothing left to auto-scroll at the current
-// zoom, via the same debug console every load/error message already
-// uses (see writeLog() further down) rather than inventing a second
-// notification style for one message.
-function guidedNudge() {
-    writeLog("Guided View: nothing to scroll here — zoom in or pan the page, then try again.");
-}
-
-// Tries to advance Guided View one step in the given direction (+1 for
-// Next, -1 for Prev) by scrolling #mainView, per the section comment
-// above. Returns true if it fully handled the move (including "nothing
-// to scroll, told the reader so") — the caller should NOT also change
-// pages in that case. Returns false when the scan has reached the edge
-// of the current page's content in that direction, meaning the caller
-// should move to the next/previous page instead.
-function guidedAdvance(direction) {
-    const canScrollX = mainView.scrollWidth > mainView.clientWidth + 1;
-    const canScrollY = mainView.scrollHeight > mainView.clientHeight + 1;
-
-    if (!canScrollX && !canScrollY) {
-        guidedNudge();
-        return true; // nothing to scroll — stay put rather than silently flipping pages
-    }
-
-    const maxScrollLeft = mainView.scrollWidth - mainView.clientWidth;
-    const maxScrollTop = mainView.scrollHeight - mainView.clientHeight;
-    // Capped at half the row's total horizontal overflow so crossing a
-    // row always takes at least two visible steps whenever there's any
-    // horizontal overflow at all. Without this, a full-viewport-sized
-    // step (the plain GUIDED_SCROLL_OVERLAP formula, still used as-is
-    // when the overflow is large) would clear a SMALL overflow — the
-    // common case at a moderate, everyday zoom level rather than a
-    // maxed-out one — in a single hop, making the row-to-row drop that
-    // immediately follows look like Guided View skipped straight to
-    // scrolling down without ever panning across.
-    const stepX = canScrollX ? Math.min(mainView.clientWidth * GUIDED_SCROLL_OVERLAP, maxScrollLeft / 2) : 0;
-    const stepY = mainView.clientHeight * GUIDED_SCROLL_OVERLAP;
-
-    // The horizontal edge each row starts from, and the one it ends on,
-    // depend on reading direction: Western starts left (0) and ends
-    // right (maxScrollLeft); manga is the mirror image.
-    const rowStartX = mangaMode ? maxScrollLeft : 0;
-    const rowEndX = mangaMode ? 0 : maxScrollLeft;
-
-    // Trust the tracked target over a live read — see its comment above.
-    const currentLeft = guidedScrollLeftTarget ?? mainView.scrollLeft;
-    const currentTop = guidedScrollTopTarget ?? mainView.scrollTop;
-
-    let newLeft = currentLeft;
-    let newTop = currentTop;
-
-    if (direction > 0) {
-        const atRowEnd = !canScrollX || Math.abs(currentLeft - rowEndX) < 1;
-        if (!atRowEnd) {
-            newLeft = Math.max(0, Math.min(maxScrollLeft, currentLeft + (mangaMode ? -stepX : stepX)));
-        } else {
-            const atBottom = !canScrollY || currentTop >= maxScrollTop - 1;
-            if (atBottom) return false; // let the caller cross to the next page
-            newTop = Math.min(maxScrollTop, currentTop + stepY);
-            newLeft = rowStartX; // back to this new row's starting edge
-        }
-    } else {
-        const atRowStart = !canScrollX || Math.abs(currentLeft - rowStartX) < 1;
-        if (!atRowStart) {
-            newLeft = Math.max(0, Math.min(maxScrollLeft, currentLeft + (mangaMode ? stepX : -stepX)));
-        } else {
-            const atTop = !canScrollY || currentTop <= 1;
-            if (atTop) return false; // let the caller cross to the previous page
-            newTop = Math.max(0, currentTop - stepY);
-            newLeft = rowEndX; // entering this row from its far/ending edge, matching a forward scan
-        }
-    }
-
-    guidedScrollLeftTarget = newLeft;
-    guidedScrollTopTarget = newTop;
-    mainView.scrollLeft = newLeft;
-    mainView.scrollTop = newTop;
-    return true;
-}
+// The cached natural box (see captureNaturalBox() above) depends on the
+// canvas's rendered size, which changes if the window/viewport is resized
+// (its CSS width is a percentage of #mainView). Re-measure whenever that
+// happens, and — if Guided View is showing a panel right now — re-frame
+// it against the fresh measurement, so it stays correctly positioned
+// instead of drifting out of place after a resize.
+window.addEventListener("resize", () => {
+    if (pageUrls.length === 0) return;
+    captureNaturalBox();
+    if (guidedViewEnabled) showGuidedPanel(currentPanelIndex);
+});
 
 // ----------------------------------------------------------------------
 // DEBUG CONSOLE: the small green-text box under the top bar.
@@ -1223,13 +1474,12 @@ function revokeAllPageUrls() {
 // function that actually changes what's on screen when you move between
 // pages — called (via goToPage() below) by goPrev()/goNext() and by
 // clicking a thumbnail. Pass { enterFromEnd: true } when arriving from
-// "previous page" while Guided View is on, so the scroll position starts
-// at the page's END (bottom, and whichever horizontal edge a forward scan
-// would have finished a row on) instead of its start — matching how
-// you'd naturally continue stepping backwards. Returns a Promise that
-// resolves once the new page is fully drawn — goToPage() awaits this so
-// it knows when it's safe to fade back in, rather than revealing a
-// still-loading page.
+// "previous page" while Guided View is on, so it starts at that page's
+// LAST detected panel instead of its first (matching how you'd naturally
+// step backwards). Returns a Promise that resolves once the new page is
+// fully drawn and — in Guided View — its panels are detected and the
+// first one framed, so goToPage() knows when it's safe to fade back in
+// rather than revealing a still-loading or not-yet-analyzed page.
 function showPage(index, options = {}) {
     if (pageUrls.length === 0) return Promise.resolve();
 
@@ -1238,36 +1488,29 @@ function showPage(index, options = {}) {
     // nothing, rather than erroring).
     currentIndex = Math.max(0, Math.min(index, pageUrls.length - 1));
 
-    const loaded = loadPageIntoCanvas(pageUrls[currentIndex]).then(() => {
-        // Keeps whatever zoom level was already set — zoom only resets
-        // when you open a brand new file (see the "resetZoom()" call in
-        // the fileInput handler below), and Guided View uses this exact
-        // same zoom rather than a system of its own (see the "GUIDED
-        // VIEW" section above).
-        applyZoom();
+    const loaded = loadPageIntoCanvas(pageUrls[currentIndex]).then(async () => {
+        // Refreshes the cached natural-box measurement frameRect() relies
+        // on, now that this page's actual image (and possibly different
+        // dimensions) is drawn. Safe to do here even outside Guided View,
+        // or in the middle of a Guided View page-crossing fade: either
+        // the canvas has no transform applied yet (normal mode) or the
+        // fade overlay is fully opaque (page-crossing) — see
+        // captureNaturalBox() above for why doing this mid-transition,
+        // unhidden, would be a problem instead.
+        captureNaturalBox();
         if (guidedViewEnabled) {
-            const entryTop = options.enterFromEnd ? mainView.scrollHeight : 0; // bottom, or top (auto-clamped to the real max)
-            const entryLeft = options.enterFromEnd
-                ? (mangaMode ? 0 : mainView.scrollWidth) // the row-ending edge a forward scan would have reached
-                : (mangaMode ? mainView.scrollWidth : 0); // the row-starting edge
-            // This jump happens while the fade overlay is fully opaque
-            // (see goToPage()), so it should be instant, not animated —
-            // scroll-behavior:smooth would otherwise still be finishing
-            // this move visibly once the fade lifts. Toggling the inline
-            // style off and back on around a single synchronous
-            // assignment doesn't affect anything else, including the
-            // guided scroll steps that follow.
-            mainView.style.scrollBehavior = "auto";
-            mainView.scrollTop = entryTop;
-            mainView.scrollLeft = entryLeft;
-            mainView.style.scrollBehavior = "";
-            // Keep guidedAdvance()'s tracked target in sync with this
-            // jump, using the actual (clamped) result rather than the
-            // possibly-unclamped entryTop/entryLeft request — see
-            // guidedScrollLeftTarget's comment further up.
-            guidedScrollTopTarget = mainView.scrollTop;
-            guidedScrollLeftTarget = mainView.scrollLeft;
+            // Detecting (if not already cached for this page) happens
+            // entirely behind the opaque fade overlay — see goToPage()
+            // and setGuidedView() — so this brief status text is the
+            // only sign of it, in case a slower device or the very first
+            // detection (which also has to finish loading the model)
+            // takes long enough to notice.
+            guidedFadeStatus.textContent = detectedPanelRowsByPage.has(currentIndex) ? "" : "Detecting panels…";
+            currentPanelList = await ensurePanelsForPage(currentIndex);
+            guidedFadeStatus.textContent = "";
+            showGuidedPanel(options.enterFromEnd ? currentPanelList.length - 1 : 0, true);
         } else {
+            applyZoom(); // keeps whatever zoom level was already set — zoom only resets when you open a brand new file
             mainView.scrollTop = 0;
             mainView.scrollLeft = 0;
         }
@@ -1275,8 +1518,15 @@ function showPage(index, options = {}) {
         // Error already logged inside loadPageIntoCanvas().
     });
 
-    prevBtn.disabled = currentIndex === 0;
-    nextBtn.disabled = currentIndex === pageUrls.length - 1;
+    // In Guided View this gets recomputed inside showGuidedPanel() above
+    // instead (it needs to know the new page's panel-boundary first) — a
+    // plain page-boundary check here would wrongly disable "prev" the
+    // moment you land back on page 1 even with panels still left to step
+    // through backward.
+    if (!guidedViewEnabled) {
+        prevBtn.disabled = currentIndex === 0;
+        nextBtn.disabled = currentIndex === pageUrls.length - 1;
+    }
 
     pageIndicator.textContent = `${currentIndex + 1} / ${pageUrls.length}`;
 
@@ -1316,13 +1566,16 @@ async function goToPage(index, options = {}) {
     guidedTransitionInProgress = false;
 }
 
-// One step backward: an automated scroll if Guided View is on and there's
-// still somewhere to scroll back to (see guidedAdvance() above), otherwise
-// the previous page (entering at its end, if Guided View is on, so the
-// backward scan continues smoothly instead of jumping to the top). Shared
-// by the ‹ button and the ← arrow key.
+// One step backward: the previous detected panel if there is one on this
+// page, otherwise the previous page (entering at its last detected
+// panel, if Guided View is on). Shared by the ‹ button and the ← arrow
+// key, and (via goNext's mirror image) consistent boundary behavior at
+// the very first page/panel.
 function goPrev() {
-    if (guidedViewEnabled && guidedAdvance(-1)) return;
+    if (guidedViewEnabled && currentPanelIndex > 0) {
+        showGuidedPanel(currentPanelIndex - 1);
+        return;
+    }
     if (currentIndex > 0) {
         goToPage(currentIndex - 1, { enterFromEnd: guidedViewEnabled });
     }
@@ -1330,7 +1583,10 @@ function goPrev() {
 
 // One step forward: the mirror image of goPrev() above.
 function goNext() {
-    if (guidedViewEnabled && guidedAdvance(1)) return;
+    if (guidedViewEnabled && currentPanelIndex < currentPanelList.length - 1) {
+        showGuidedPanel(currentPanelIndex + 1);
+        return;
+    }
     if (currentIndex < pageUrls.length - 1) {
         goToPage(currentIndex + 1);
     }
@@ -1474,6 +1730,7 @@ fileInput.addEventListener("change", async (event) => {
     // Reset everything back to a clean "loading" state before we start,
     // in case a different comic was already open.
     revokeAllPageUrls();
+    detectedPanelRowsByPage.clear(); // page index 0 of THIS file has nothing to do with whatever was cached for page index 0 of the last one
     sidebar.innerHTML = "";
     pageCanvas.hidden = true;
     pageNav.hidden = true;
