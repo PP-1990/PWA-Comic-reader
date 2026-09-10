@@ -1096,8 +1096,73 @@ function frameRect(rectX, rectY, rectWidth, rectHeight) {
 // percentage-width) layout — called whenever Guided View turns off.
 function resetGuidedTransform() {
     pageCanvas.style.transform = "";
+    pageCanvas.style.touchAction = "";
     mainView.style.overflow = "";
 }
+
+// ----------------------------------------------------------------------
+// MANUAL PAN: detection is a best guess, not a guarantee — it can crop a
+// panel a bit too tight, miss one entirely (falling back to a whole-page
+// step), or just not match how a reader wants to look at it. Rather than
+// trying to make detection itself perfect, this lets the reader nudge
+// the current step's framing directly — drag/swipe with a mouse or
+// finger, or scroll/trackpad-swipe with a wheel — in any direction,
+// without changing the zoom level frameRect() chose. It's a temporary
+// adjustment only: moving to the next/previous panel or page re-frames
+// from scratch via frameRect() and overwrites it, which is the intended
+// "reset" — there's no separate undo needed, just step away and back.
+// ----------------------------------------------------------------------
+let isPanningGuidedView = false;
+let panStartX = 0;
+let panStartY = 0;
+let panStartTranslateX = 0;
+let panStartTranslateY = 0;
+
+pageCanvas.addEventListener("pointerdown", (event) => {
+    if (!guidedViewEnabled) return;
+    isPanningGuidedView = true;
+    panStartX = event.clientX;
+    panStartY = event.clientY;
+    panStartTranslateX = guidedTranslateX;
+    panStartTranslateY = guidedTranslateY;
+    pageCanvas.style.transition = "none"; // track the pointer 1:1, not eased
+    pageCanvas.style.cursor = "grabbing";
+    pageCanvas.setPointerCapture(event.pointerId);
+});
+
+pageCanvas.addEventListener("pointermove", (event) => {
+    if (!isPanningGuidedView) return;
+    guidedTranslateX = panStartTranslateX + (event.clientX - panStartX);
+    guidedTranslateY = panStartTranslateY + (event.clientY - panStartY);
+    applyGuidedTransform();
+});
+
+function endGuidedPan() {
+    if (!isPanningGuidedView) return;
+    isPanningGuidedView = false;
+    pageCanvas.style.transition = ""; // back to the normal eased transition for the next panel move
+    pageCanvas.style.cursor = "grab";
+}
+pageCanvas.addEventListener("pointerup", endGuidedPan);
+pageCanvas.addEventListener("pointercancel", endGuidedPan);
+
+// Mouse wheel / trackpad scroll also pans, for desktop users who'd rather
+// not click-drag. Transition is disabled for the duration of active
+// scrolling (for the same 1:1-tracking reason as the drag handler above)
+// and restored a moment after scrolling stops.
+let wheelPanRestoreTimer = null;
+mainView.addEventListener("wheel", (event) => {
+    if (!guidedViewEnabled) return;
+    event.preventDefault();
+    pageCanvas.style.transition = "none";
+    guidedTranslateX -= event.deltaX;
+    guidedTranslateY -= event.deltaY;
+    applyGuidedTransform();
+    clearTimeout(wheelPanRestoreTimer);
+    wheelPanRestoreTimer = setTimeout(() => {
+        pageCanvas.style.transition = "";
+    }, 150);
+}, { passive: false });
 
 // ----------------------------------------------------------------------
 // PANEL DETECTION
@@ -1412,6 +1477,8 @@ async function setGuidedView(enabled) {
         mainView.style.overflow = "hidden"; // manual scrolling would fight with the transform-driven view
         mainView.scrollTop = 0;
         mainView.scrollLeft = 0;
+        pageCanvas.style.cursor = "grab"; // hints that the page can be dragged to fine-tune the framing
+        pageCanvas.style.touchAction = "none"; // let pointer events drive panning instead of the browser's own touch scrolling
         if (hasComic) {
             guidedFadeStatus.textContent = detectedPanelRowsByPage.has(currentIndex) ? "" : "Detecting panels…";
             currentPanelList = await ensurePanelsForPage(currentIndex);
