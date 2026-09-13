@@ -232,6 +232,32 @@
         font-weight: bold;
     }
 
+    #navDivider {
+        width: 1px;
+        height: 18px;
+        background: #444;
+    }
+
+    #zoomControls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    #zoomControls button {
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border-radius: 50%;
+        font-size: 14px;
+    }
+
+    #zoomLevelLabel {
+        min-width: 40px;
+        text-align: center;
+        cursor: pointer;
+    }
+
     #canvasScroll {
         flex: 1;
         min-height: 0;
@@ -243,13 +269,20 @@
     }
 
     #canvasWrap {
+        /* No max-width here on purpose: #editorCanvas's width is always
+           set to an explicit pixel value by applyEditorZoom() (in the
+           <script> below), including intentionally wider than the
+           viewport once zoomed in past 100% — #canvasScroll's own
+           overflow:auto is what turns that into a scrollable area. A
+           max-width here would instead cap THIS wrapper while the canvas
+           inside it kept its full explicit width, which would silently
+           break #overlayContainer's alignment (it's sized to THIS
+           element's box, via inset:0, not to the canvas's own). */
         position: relative;
-        max-width: 100%;
         flex-shrink: 0;
     }
     #editorCanvas {
         display: block;
-        width: 100%;
         height: auto;
         background: #333;
     }
@@ -333,8 +366,18 @@
         cursor: pointer;
     }
     #panelList li.selected { border-color: #ff5252; background: #2a1414; }
+    #panelList li.dragging { opacity: 0.4; }
     #panelList li .label { flex: 1; }
     #panelList li .btns { display: flex; gap: 2px; }
+    #panelList li .drag-handle {
+        cursor: grab;
+        color: #777;
+        font-size: 13px;
+        padding: 0 2px;
+        touch-action: none;
+        user-select: none;
+    }
+    #panelList li .drag-handle:hover { color: #ffd54f; }
 
     #sidebarActions {
         flex-shrink: 0;
@@ -392,6 +435,12 @@
             <button class="secondary small" id="prevPageBtn">&#8249; Prev</button>
             <span id="pageIndicator">1 / 1</span>
             <button class="secondary small" id="nextPageBtn">Next &#8250;</button>
+            <div id="navDivider"></div>
+            <div id="zoomControls">
+                <button class="secondary" id="zoomOutBtn" aria-label="Zoom out">&#8722;</button>
+                <span id="zoomLevelLabel" title="Click to reset zoom">100%</span>
+                <button class="secondary" id="zoomInBtn" aria-label="Zoom in">&#43;</button>
+            </div>
         </div>
         <div id="canvasScroll" hidden>
             <div id="canvasWrap">
@@ -427,6 +476,13 @@ let currentImage = null;     // the decoded <img> for the page currently drawn
 let mangaMode = false;
 let selectedPanelIndex = -1;
 let dragState = null;
+let listDragState = null;
+
+const EDITOR_ZOOM_MIN = 0.5;
+const EDITOR_ZOOM_MAX = 3;
+const EDITOR_ZOOM_DEFAULT = 1;
+const EDITOR_ZOOM_STEP = 0.25;
+let editorZoomLevel = EDITOR_ZOOM_DEFAULT;
 
 const fileInput = document.getElementById("fileInput");
 const status = document.getElementById("status");
@@ -450,6 +506,9 @@ const panelListHeader = document.getElementById("panelListHeader");
 const panelList = document.getElementById("panelList");
 const addPanelBtn = document.getElementById("addPanelBtn");
 const detectBtn = document.getElementById("detectBtn");
+const zoomInBtn = document.getElementById("zoomInBtn");
+const zoomOutBtn = document.getElementById("zoomOutBtn");
+const zoomLevelLabel = document.getElementById("zoomLevelLabel");
 const exportBar = document.getElementById("exportBar");
 const exportAcbfBtn = document.getElementById("exportAcbfBtn");
 const exportCbzBtn = document.getElementById("exportCbzBtn");
@@ -467,6 +526,51 @@ logCloseBtn.addEventListener("click", () => {
 
 mangaModeCheckbox.addEventListener("change", () => {
     mangaMode = mangaModeCheckbox.checked;
+});
+
+// ============================================================================
+// ZOOM — same idea as the reader's own +/- controls: 100% is "fit the
+// current page to the available width", scaled up/down from there. Unlike
+// the reader, there's no percentage-width CSS to lean on here (the canvas
+// also has to line up exactly with the overlay boxes at any size), so this
+// computes an explicit pixel width every time: the width that would fit
+// the page at 100%, times the current zoom level.
+// ============================================================================
+function applyEditorZoom() {
+    const page = pages[currentPageIndex];
+    if (!page || !page.naturalWidth) return;
+    const available = canvasScroll.clientWidth - 32; // minus #canvasScroll's own 16px padding on each side
+    const fitScale = available / page.naturalWidth;
+    editorCanvas.style.width = (page.naturalWidth * fitScale * editorZoomLevel) + "px";
+    zoomLevelLabel.textContent = Math.round(editorZoomLevel * 100) + "%";
+    zoomOutBtn.disabled = editorZoomLevel <= EDITOR_ZOOM_MIN;
+    zoomInBtn.disabled = editorZoomLevel >= EDITOR_ZOOM_MAX;
+}
+
+// Back to 100% — called when opening a brand new file (matching the
+// reader's own convention: zoom persists across pages of the same file,
+// but not across files — see fileInput's change handler below).
+function resetEditorZoom() {
+    editorZoomLevel = EDITOR_ZOOM_DEFAULT;
+    applyEditorZoom();
+}
+
+zoomInBtn.addEventListener("click", () => {
+    editorZoomLevel = Math.min(EDITOR_ZOOM_MAX, +(editorZoomLevel + EDITOR_ZOOM_STEP).toFixed(2));
+    applyEditorZoom();
+});
+
+zoomOutBtn.addEventListener("click", () => {
+    editorZoomLevel = Math.max(EDITOR_ZOOM_MIN, +(editorZoomLevel - EDITOR_ZOOM_STEP).toFixed(2));
+    applyEditorZoom();
+});
+
+zoomLevelLabel.addEventListener("click", resetEditorZoom);
+
+// The "fit" width (available space) can change if the window resizes —
+// re-measure and re-apply so the canvas/overlay stay correctly sized.
+window.addEventListener("resize", () => {
+    if (pages.length > 0) applyEditorZoom();
 });
 
 // ============================================================================
@@ -518,6 +622,7 @@ fileInput.addEventListener("change", async () => {
         exportBar.hidden = false;
         thumbSidebar.hidden = false;
 
+        resetEditorZoom();
         await buildThumbnails();
         await showPage(0);
 
@@ -619,6 +724,7 @@ async function showPage(index) {
     editorCanvas.width = page.naturalWidth;
     editorCanvas.height = page.naturalHeight;
     editorCanvas.getContext("2d").drawImage(currentImage, 0, 0);
+    applyEditorZoom();
 
     if (page.rects === null) {
         status.textContent = "Detecting panels...";
@@ -732,7 +838,18 @@ function renderPanelList() {
 
     rects.forEach((rect, i) => {
         const li = document.createElement("li");
-        li.className = i === selectedPanelIndex ? "selected" : "";
+        li.className = (i === selectedPanelIndex ? "selected" : "") + (listDragState && listDragState.index === i ? " dragging" : "");
+
+        const handle = document.createElement("span");
+        handle.className = "drag-handle";
+        handle.textContent = "⠿"; // ⠿ — a compact "grip" glyph, no icon font needed
+        handle.title = "Drag to reorder";
+        handle.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startListDrag(e, i);
+        });
+        li.appendChild(handle);
 
         const label = document.createElement("span");
         label.className = "label";
@@ -775,14 +892,82 @@ function renderPanelList() {
     });
 }
 
+// Moves the panel at `fromIndex` to `toIndex` in the reading-order list,
+// shifting everything between them over by one — the general case behind
+// both the Up/Down buttons (always an adjacent move) and drag-reordering
+// (which can jump straight to any position). Keeps selectedPanelIndex
+// pointing at whichever panel it was on before the move, even if that
+// panel wasn't the one being moved.
+function moveRectTo(fromIndex, toIndex) {
+    const rects = pages[currentPageIndex].rects;
+    if (fromIndex === toIndex) return;
+    const [moved] = rects.splice(fromIndex, 1);
+    rects.splice(toIndex, 0, moved);
+
+    if (selectedPanelIndex === fromIndex) {
+        selectedPanelIndex = toIndex;
+    } else if (fromIndex < toIndex) {
+        if (selectedPanelIndex > fromIndex && selectedPanelIndex <= toIndex) selectedPanelIndex--;
+    } else {
+        if (selectedPanelIndex >= toIndex && selectedPanelIndex < fromIndex) selectedPanelIndex++;
+    }
+}
+
 function movePanel(index, direction) {
     const rects = pages[currentPageIndex].rects;
     const target = index + direction;
     if (target < 0 || target >= rects.length) return;
-    [rects[index], rects[target]] = [rects[target], rects[index]];
+    moveRectTo(index, target);
     selectedPanelIndex = target;
     renderOverlay();
     renderPanelList();
+}
+
+// ----------------------------------------------------------------------
+// DRAG-TO-REORDER: press and hold a panel's grip handle (see renderPanelList()
+// above) and drag it up/down the list to jump it straight to a new reading-
+// order position, instead of clicking Up/Down one step at a time.
+// ----------------------------------------------------------------------
+function startListDrag(e, index) {
+    listDragState = { index };
+    renderPanelList();
+    document.addEventListener("pointermove", onListDragMove);
+    document.addEventListener("pointerup", onListDragEnd);
+}
+
+// Figures out which slot the pointer is currently hovering over (by
+// comparing its Y position against each list item's own vertical
+// midpoint) and, if that's different from where the dragged panel
+// currently sits, moves it there right away — so the list visibly
+// reorders live as you drag, the same way most drag-and-drop lists work.
+function onListDragMove(e) {
+    if (!listDragState) return;
+    const items = [...panelList.children];
+    if (items.length === 0) return;
+
+    let hoverIndex = items.length - 1;
+    for (let i = 0; i < items.length; i++) {
+        const rect = items[i].getBoundingClientRect();
+        if (e.clientY < rect.top + rect.height / 2) {
+            hoverIndex = i;
+            break;
+        }
+    }
+
+    if (hoverIndex !== listDragState.index) {
+        moveRectTo(listDragState.index, hoverIndex);
+        listDragState.index = hoverIndex;
+        renderOverlay();
+        renderPanelList();
+    }
+}
+
+function onListDragEnd() {
+    listDragState = null;
+    document.removeEventListener("pointermove", onListDragMove);
+    document.removeEventListener("pointerup", onListDragEnd);
+    renderPanelList();
+    refreshThumbActiveState();
 }
 
 function deletePanel(index) {
@@ -799,13 +984,18 @@ addPanelBtn.addEventListener("click", () => {
     if (!page.rects) page.rects = [];
     const w = page.naturalWidth * 0.4;
     const h = page.naturalHeight * 0.3;
-    page.rects.push({
+    const newRect = {
         x: (page.naturalWidth - w) / 2,
         y: (page.naturalHeight - h) / 2,
         width: w,
         height: h
-    });
-    selectedPanelIndex = page.rects.length - 1;
+    };
+    // Right after whatever's selected, so it lands where you're actively
+    // working instead of always at the end — with nothing selected,
+    // there's no "current spot" to insert after, so it goes at the end.
+    const insertIndex = selectedPanelIndex === -1 ? page.rects.length : selectedPanelIndex + 1;
+    page.rects.splice(insertIndex, 0, newRect);
+    selectedPanelIndex = insertIndex;
     renderOverlay();
     renderPanelList();
     refreshThumbActiveState();
