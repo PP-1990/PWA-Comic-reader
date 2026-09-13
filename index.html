@@ -511,6 +511,31 @@
         cursor: pointer;
     }
 
+    /* Lets the reader pick how Guided View moves between panels ON THE
+       SAME PAGE: frameRect()'s smooth animated pan/zoom (the original,
+       still the default), or a hard cut to black and back — the same
+       fade mechanic page-boundary crossings already always use, just
+       also available within a page. See guidedTransitionMode/
+       stepToPanel() in the <script> below. */
+    #transitionModeRow {
+        margin-bottom: 18px;
+        font-size: 13px;
+    }
+
+    #transitionModeRow .setupFieldLabel {
+        color: rgba(255, 255, 255, 0.65);
+        font-size: 12px;
+        margin-bottom: 6px;
+    }
+
+    #transitionModeRow label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+        cursor: pointer;
+    }
+
     .guidedSetupButtons {
         display: flex;
         justify-content: flex-end;
@@ -834,6 +859,17 @@
             <input type="checkbox" id="mangaModeCheckbox">
             Reading manga? (right to left)
         </label>
+        <div id="transitionModeRow">
+            <div class="setupFieldLabel">Between panels:</div>
+            <label>
+                <input type="radio" name="transitionMode" id="transitionModePanRadio" value="pan">
+                Pan &amp; zoom
+            </label>
+            <label>
+                <input type="radio" name="transitionMode" id="transitionModeFadeRadio" value="fade">
+                Fade to black
+            </label>
+        </div>
         <div class="guidedSetupButtons">
             <button id="guidedSetupCancelBtn">Cancel</button>
             <button id="guidedSetupStartBtn">Start</button>
@@ -863,6 +899,8 @@ const fadeOverlay = document.getElementById("guidedFadeOverlay");
 const guidedFadeStatus = document.getElementById("guidedFadeStatus");
 const guidedSetupOverlay = document.getElementById("guidedSetupOverlay");
 const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
+const transitionModePanRadio = document.getElementById("transitionModePanRadio");
+const transitionModeFadeRadio = document.getElementById("transitionModeFadeRadio");
 const guidedSetupHint = document.getElementById("guidedSetupHint");
 const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
 const guidedSetupStartBtn = document.getElementById("guidedSetupStartBtn");
@@ -1043,6 +1081,14 @@ sidebarNext.addEventListener("click", () => {
 let guidedViewEnabled = false;
 let mangaMode = false;
 let guidedTransitionInProgress = false;
+
+// How Guided View moves between panels ON THE SAME PAGE — "pan" (the
+// original behavior: frameRect()'s smooth animated CSS transform) or
+// "fade" (a hard cut to black and back, via the same fadeOut()/fadeIn()
+// page-boundary crossings already use — see stepToPanel() below).
+// Crossing to a different page always fades regardless of this setting;
+// this only controls same-page steps, which otherwise never fade at all.
+let guidedTransitionMode = "pan";
 
 // The panel list currently being stepped through (already flattened into
 // reading order for the current page and mangaMode — see
@@ -1254,17 +1300,21 @@ async function ensurePanelsForPage(pageIndex) {
 }
 
 // ----------------------------------------------------------------------
-// Fade-to-black transitions, used for Guided View's page-boundary
-// crossings and mode toggle — never for stepping between panels on the
-// same page, which relies purely on frameRect()'s smooth `transform`
-// animation instead. The distinction is deliberate: within a page, this
-// should feel like one continuous camera move over the same artwork;
-// crossing into different content (a new page, or turning Guided View
-// on/off) is a real cut, and a brief fade reads as an intentional scene
-// break instead of a jarring pop — while also conveniently hiding both
-// the moment a new page's image is still being decoded and drawn, and
-// (via guidedFadeStatus — see detectPanelsForPage() above) the moment
-// its panels are still being detected.
+// Fade-to-black transitions. ALWAYS used for Guided View's page-boundary
+// crossings and mode toggle: crossing into different content (a new
+// page, or turning Guided View on/off) is a real cut, and a brief fade
+// reads as an intentional scene break instead of a jarring pop — while
+// also conveniently hiding both the moment a new page's image is still
+// being decoded and drawn, and (via guidedFadeStatus — see
+// detectPanelsForPage() above) the moment its panels are still being
+// detected.
+//
+// Stepping between panels on the SAME page instead follows
+// guidedTransitionMode (see stepToPanel() below): "pan" (the original
+// behavior) relies purely on frameRect()'s smooth `transform` animation,
+// for a feel of one continuous camera move over the same artwork; "fade"
+// reuses this exact same fadeOut()/fadeIn() cut for same-page steps too,
+// for readers who'd rather each panel arrive as a clean reveal.
 // ----------------------------------------------------------------------
 const FADE_DURATION = 300; // ms — kept snappier than the pan/zoom transition, since this is a full blackout
 
@@ -1303,6 +1353,27 @@ function showGuidedPanel(index, instant) {
     }
     prevBtn.disabled = currentIndex === 0 && currentPanelIndex === 0;
     nextBtn.disabled = currentIndex === pageUrls.length - 1 && currentPanelIndex === currentPanelList.length - 1;
+}
+
+// Moves to a different panel on the CURRENT page (goToPage() below is the
+// equivalent for crossing to a different page) — the one thing goPrev()/
+// goNext()'s same-page branches actually call. Applies
+// guidedTransitionMode: "pan" is just showGuidedPanel()'s own default
+// animated move; "fade" instead cuts to black, jumps instantly behind
+// it (showGuidedPanel(index, true)), and fades back in, guarded by the
+// same guidedTransitionInProgress flag page crossings use so a fast
+// double-tap can't start a second fade before the first finishes.
+async function stepToPanel(index) {
+    if (guidedTransitionMode !== "fade") {
+        showGuidedPanel(index);
+        return;
+    }
+    if (guidedTransitionInProgress) return;
+    guidedTransitionInProgress = true;
+    await fadeOut();
+    showGuidedPanel(index, true);
+    await fadeIn();
+    guidedTransitionInProgress = false;
 }
 
 // Turns Guided View on/off. Fades through black around the switch
@@ -1373,6 +1444,8 @@ function updateGuidedSetupHint() {
 
 function openGuidedSetup() {
     mangaModeCheckbox.checked = mangaMode;
+    transitionModePanRadio.checked = guidedTransitionMode === "pan";
+    transitionModeFadeRadio.checked = guidedTransitionMode === "fade";
     updateGuidedSetupHint();
     guidedSetupOverlay.hidden = false;
 }
@@ -1387,6 +1460,7 @@ guidedSetupCancelBtn.addEventListener("click", closeGuidedSetup);
 
 guidedSetupStartBtn.addEventListener("click", () => {
     mangaMode = mangaModeCheckbox.checked;
+    guidedTransitionMode = transitionModeFadeRadio.checked ? "fade" : "pan";
     closeGuidedSetup();
     setGuidedView(true);
 });
@@ -1566,7 +1640,7 @@ async function goToPage(index, options = {}) {
 // the very first page/panel.
 function goPrev() {
     if (guidedViewEnabled && currentPanelIndex > 0) {
-        showGuidedPanel(currentPanelIndex - 1);
+        stepToPanel(currentPanelIndex - 1);
         return;
     }
     if (currentIndex > 0) {
@@ -1577,7 +1651,7 @@ function goPrev() {
 // One step forward: the mirror image of goPrev() above.
 function goNext() {
     if (guidedViewEnabled && currentPanelIndex < currentPanelList.length - 1) {
-        showGuidedPanel(currentPanelIndex + 1);
+        stepToPanel(currentPanelIndex + 1);
         return;
     }
     if (currentIndex < pageUrls.length - 1) {
