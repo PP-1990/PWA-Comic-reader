@@ -840,6 +840,7 @@ const fadeOverlay = document.getElementById("guidedFadeOverlay");
 const guidedFadeStatus = document.getElementById("guidedFadeStatus");
 const guidedSetupOverlay = document.getElementById("guidedSetupOverlay");
 const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
+const guidedSetupHint = document.getElementById("guidedSetupHint");
 const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
 const guidedSetupStartBtn = document.getElementById("guidedSetupStartBtn");
 const pageCanvas = document.getElementById("pageCanvas");
@@ -1001,6 +1002,19 @@ sidebarNext.addEventListener("click", () => {
 // page is only ever analyzed once per file — the first page you visit in
 // Guided View takes a moment (the model + its ~10MB WASM runtime need to
 // load too, the first time), every page after that is instant.
+//
+// The model only ever runs as a fallback, though. Some comics ship their
+// own ACBF (Advanced Comic Book Format) metadata alongside the page
+// images — a hand-authored .acbf XML file listing each page's actual
+// panel boundaries, already in reading order. That's ground truth, not a
+// guess, so when it's present it's used directly instead of ever
+// touching the model at all — see parseAcbfFrames() below and the
+// fileInput handler, which seeds detectedPanelRowsByPage with it (one
+// frame per row, since ACBF's own order should never be re-sorted or
+// mangaMode-reversed — see flattenPanelRows()'s no-op on single-item
+// rows) for whichever pages it covers, before Guided View is ever turned
+// on. Pages an .acbf file doesn't mention — or every page, if there's no
+// .acbf file at all — fall through to the model exactly as before.
 // ----------------------------------------------------------------------
 
 let guidedViewEnabled = false;
@@ -1021,6 +1035,12 @@ let currentPanelIndex = 0;
 // fileInput handler further down) — page index 0 of a new file has
 // nothing to do with whatever was cached for page index 0 of the last one.
 const detectedPanelRowsByPage = new Map();
+
+// How many of the current file's pages got their panel rows from an
+// .acbf file (see parseAcbfFrames() below) rather than the model, set
+// once when a file finishes loading — openGuidedSetup() reads this to
+// tell the reader which source Guided View is actually about to use.
+let acbfStatus = { withData: 0, total: 0 };
 
 // The canvas's natural (untransformed) on-screen box, cached so frameRect()
 // never has to measure it by touching the live transform mid-transition —
@@ -1359,6 +1379,52 @@ function groupPanelsIntoRows(boxes) {
     return rows;
 }
 
+// Parses an .acbf file's raw XML text into a Map from image filename
+// (basename only, lowercased — ACBF's <image href="..."> can be a bare
+// name or a path like "images/012.jpg", and archive layouts vary, so
+// matching on the basename against the archive's own filenames is more
+// robust than requiring an exact path match) to its ordered list of
+// panel rectangles. ACBF's <frame points="x1,y1 x2,y2 ..."> is a
+// polygon, not a rectangle — this uses its bounding box, the same
+// simplification the rest of Guided View already makes (a fixed,
+// content-blind rectangle rather than an arbitrary shape). Returns an
+// empty Map on any parse failure or if the file has no recognizable
+// <page>/<frame> structure, which the caller treats exactly like "no
+// .acbf file at all" — this is a bonus data source, never a requirement.
+function parseAcbfFrames(xmlText) {
+    const framesByImageName = new Map();
+    let doc;
+    try {
+        doc = new DOMParser().parseFromString(xmlText, "application/xml");
+    } catch {
+        return framesByImageName;
+    }
+    if (!doc || doc.getElementsByTagName("parsererror").length > 0) return framesByImageName;
+
+    for (const pageEl of doc.getElementsByTagName("page")) {
+        const href = pageEl.getElementsByTagName("image")[0]?.getAttribute("href");
+        if (!href) continue;
+        const baseName = href.split(/[\\/]/).pop().toLowerCase();
+
+        const rects = [];
+        for (const frameEl of pageEl.getElementsByTagName("frame")) {
+            const points = (frameEl.getAttribute("points") || "").trim().split(/\s+/)
+                .map(pair => pair.split(",").map(Number));
+            if (points.length < 3 || points.some(p => p.length !== 2 || p.some(Number.isNaN))) continue;
+            const xs = points.map(p => p[0]);
+            const ys = points.map(p => p[1]);
+            rects.push({
+                x: Math.min(...xs),
+                y: Math.min(...ys),
+                width: Math.max(...xs) - Math.min(...xs),
+                height: Math.max(...ys) - Math.min(...ys)
+            });
+        }
+        if (rects.length > 0) framesByImageName.set(baseName, rects);
+    }
+    return framesByImageName;
+}
+
 // Runs detection for the given page (cached — see detectedPanelRowsByPage
 // above) and returns its row-grouped "frame" boxes. Never throws: a
 // loading/inference failure is logged to the debug console and treated
@@ -1507,8 +1573,22 @@ async function setGuidedView(enabled) {
 // there's no comic open yet (setGuidedView() itself already handles that
 // empty state).
 // ----------------------------------------------------------------------
+// Tells the reader which source Guided View is actually about to use for
+// THIS file, before they commit to starting it — see acbfStatus's own
+// comment above for where these numbers come from.
+function updateGuidedSetupHint() {
+    if (acbfStatus.withData === 0) {
+        guidedSetupHint.textContent = "No panel data found in this file — Guided View will detect panels automatically. The first page takes a few seconds to analyze; every page after that is instant.";
+    } else if (acbfStatus.withData === acbfStatus.total) {
+        guidedSetupHint.textContent = "This file includes exact panel data — Guided View will use it directly, with nothing to detect or guess.";
+    } else {
+        guidedSetupHint.textContent = `This file includes exact panel data for ${acbfStatus.withData} of ${acbfStatus.total} pages — Guided View detects the rest automatically.`;
+    }
+}
+
 function openGuidedSetup() {
     mangaModeCheckbox.checked = mangaMode;
+    updateGuidedSetupHint();
     guidedSetupOverlay.hidden = false;
 }
 
@@ -1778,7 +1858,7 @@ async function extractZipEntries(file) {
     writeLog("Archive entries:");
     entries.forEach(e => writeLog(" - " + e));
 
-    return entries
+    const pages = entries
         .filter(name =>
             !zip.files[name].dir &&
             isImageFile(name) &&
@@ -1788,6 +1868,14 @@ async function extractZipEntries(file) {
             name,
             getBlob: () => zip.files[name].async("blob")
         }));
+
+    // An .acbf file, if this archive has one, carries hand-authored panel
+    // data Guided View prefers over guessing with the model — see
+    // parseAcbfFrames() and the fileInput handler further down.
+    const acbfName = entries.find(name => /\.acbf$/i.test(name));
+    const acbfText = acbfName ? await zip.files[acbfName].async("text") : null;
+
+    return { pages, acbfText };
 }
 
 // Same idea as extractZipEntries() above, but for .cbr/.rar files, using
@@ -1827,18 +1915,32 @@ async function extractRarEntries(file) {
     const imageHeaders = headers.filter(h =>
         isImageFile(h.name) && !h.name.includes("__MACOSX")
     );
+    // An .acbf file, if this archive has one, carries hand-authored panel
+    // data Guided View prefers over guessing with the model — see
+    // parseAcbfFrames() and the fileInput handler further down.
+    const acbfHeader = headers.find(h => /\.acbf$/i.test(h.name));
+
+    const filesToExtract = imageHeaders.map(h => h.raw);
+    if (acbfHeader) filesToExtract.push(acbfHeader.raw);
 
     const blobs = new Map();
-    for (const entry of extractor.extract({ files: imageHeaders.map(h => h.raw) }).files) {
-        blobs.set(entry.fileHeader.name, new Blob([entry.extraction]));
+    let acbfText = null;
+    for (const entry of extractor.extract({ files: filesToExtract }).files) {
+        if (acbfHeader && entry.fileHeader.name === acbfHeader.raw) {
+            acbfText = new TextDecoder("utf-8").decode(entry.extraction);
+        } else {
+            blobs.set(entry.fileHeader.name, new Blob([entry.extraction]));
+        }
     }
 
-    return imageHeaders
+    const pages = imageHeaders
         .filter(h => blobs.has(h.raw))
         .map(h => ({
             name: h.name,
             getBlob: async () => blobs.get(h.raw)
         }));
+
+    return { pages, acbfText };
 }
 
 // ============================================================================
@@ -1878,7 +1980,7 @@ fileInput.addEventListener("change", async (event) => {
         // Decide which extraction function to use based on the file name.
         const isRar = /\.(cbr|rar)$/i.test(file.name);
 
-        const pages = isRar
+        const { pages, acbfText } = isRar
             ? await extractRarEntries(file)
             : await extractZipEntries(file);
 
@@ -1904,6 +2006,14 @@ fileInput.addEventListener("change", async (event) => {
             );
         }
 
+        // If this archive shipped an .acbf file, this is every page it has
+        // panel data for, keyed by image filename — see parseAcbfFrames()
+        // and the "GUIDED VIEW" section further down. Empty if there was
+        // no .acbf file, or it didn't parse, or it named no pages: Guided
+        // View just falls back to the model for every page in that case.
+        const acbfFramesByName = acbfText ? parseAcbfFrames(acbfText) : new Map();
+        acbfStatus = { withData: 0, total: pages.length };
+
         // Build one thumbnail (+ its page-number label) per page, and
         // collect each page's displayable image address into pageUrls
         // along the way — this is also where each page actually gets
@@ -1921,6 +2031,18 @@ fileInput.addEventListener("change", async (event) => {
             // released.
             const url = URL.createObjectURL(blob);
             pageUrls.push(url);
+
+            // Seed this page's Guided View panels straight from the .acbf
+            // data if it named this image — one frame per row, since
+            // ACBF's own order is ground truth and must never be
+            // re-sorted or manga-reversed (see flattenPanelRows()).
+            // detectPanelsForPage() sees this page is already in the
+            // cache and never touches the model for it at all.
+            const acbfFrames = acbfFramesByName.get(page.name.split(/[\\/]/).pop().toLowerCase());
+            if (acbfFrames) {
+                detectedPanelRowsByPage.set(i, acbfFrames.map(frame => [frame]));
+                acbfStatus.withData++;
+            }
 
             const thumbItem = document.createElement("div");
             thumbItem.className = "thumb-item";
