@@ -455,6 +455,31 @@
         font-size: 14px;
     }
 
+    /* Cinematic mode's "spotlight". The wrap is positioned/sized in JS
+       (see updateCinematicMask()) to exactly cover #mainView, and clips
+       (overflow:hidden) so the inner window's box-shadow — a huge,
+       blur-free spread that paints everywhere OUTSIDE its own box —
+       can never bleed past the reading area into the sidebar/console/
+       top bar, regardless of how far the shadow's spread radius reaches.
+       z-index sits below the nav pills (150) so ‹ › and the page
+       indicator stay visible/usable on top of it, but above the page
+       content itself (which has no z-index of its own). pointer-events:
+       none throughout so manual pan/drag on the page underneath is
+       never blocked — box-shadow paint never participates in hit-
+       testing anyway, but this keeps that explicit rather than relying
+       on that detail. */
+    #cinematicMaskWrap {
+        position: fixed;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 140;
+    }
+    #cinematicMask {
+        position: absolute;
+        border-radius: 2px;
+        box-shadow: 0 0 0 9999px rgba(12, 12, 12, 0.96), 0 0 24px 2px rgba(255, 213, 79, 0.15);
+    }
+
     /* The "reading direction" prompt shown when turning Guided View on —
        see openGuidedSetup() in the <script>.
        Sits above the fade overlay (higher z-index) so it's never hidden
@@ -847,6 +872,19 @@
     <span id="guidedFadeStatus"></span>
 </div>
 
+<!-- Cinematic mode's "spotlight": a window exactly matching the current
+     panel's own on-screen box, everything outside it (but still within
+     the reading area — not the sidebar/console/top bar) blacked out —
+     see updateCinematicMask() in the <script>. Two nested elements: the
+     outer wrap is sized/positioned to exactly cover #mainView and clips
+     (overflow:hidden) so the inner window's masking effect can never
+     bleed past the reading area; the inner window itself is empty and
+     transparent — the masking is entirely the CSS box-shadow trick on
+     it, in the <style> above. -->
+<div id="cinematicMaskWrap" hidden>
+    <div id="cinematicMask"></div>
+</div>
+
 <!-- Guided View setup prompt: shown when turning Guided View ON, to ask
      the one thing that actually needs asking — reading direction. See
      openGuidedSetup() and the "GUIDED VIEW" section comment in the
@@ -868,6 +906,10 @@
             <label>
                 <input type="radio" name="transitionMode" id="transitionModeFadeRadio" value="fade">
                 Fade to black
+            </label>
+            <label>
+                <input type="radio" name="transitionMode" id="transitionModeCinematicRadio" value="cinematic">
+                Cinematic (spotlight + fade)
             </label>
         </div>
         <div class="guidedSetupButtons">
@@ -901,6 +943,9 @@ const guidedSetupOverlay = document.getElementById("guidedSetupOverlay");
 const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
 const transitionModePanRadio = document.getElementById("transitionModePanRadio");
 const transitionModeFadeRadio = document.getElementById("transitionModeFadeRadio");
+const transitionModeCinematicRadio = document.getElementById("transitionModeCinematicRadio");
+const cinematicMaskWrap = document.getElementById("cinematicMaskWrap");
+const cinematicMask = document.getElementById("cinematicMask");
 const guidedSetupHint = document.getElementById("guidedSetupHint");
 const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
 const guidedSetupStartBtn = document.getElementById("guidedSetupStartBtn");
@@ -1082,10 +1127,16 @@ let guidedViewEnabled = false;
 let mangaMode = false;
 let guidedTransitionInProgress = false;
 
-// How Guided View moves between panels ON THE SAME PAGE — "pan" (the
-// original behavior: frameRect()'s smooth animated CSS transform) or
-// "fade" (a hard cut to black and back, via the same fadeOut()/fadeIn()
-// page-boundary crossings already use — see stepToPanel() below).
+// How Guided View moves between panels ON THE SAME PAGE:
+//   "pan"       — the original behavior: frameRect()'s smooth animated
+//                 CSS transform, panel to panel, in the context of the
+//                 whole page.
+//   "fade"      — a hard cut to black and back, via the same
+//                 fadeOut()/fadeIn() page-boundary crossings already use
+//                 — see stepToPanel() below.
+//   "cinematic" — the same fade cut as "fade", plus (while a panel is
+//                 showing) a spotlight mask hiding everything on the
+//                 page except that one panel — see updateCinematicMask().
 // Crossing to a different page always fades regardless of this setting;
 // this only controls same-page steps, which otherwise never fade at all.
 let guidedTransitionMode = "pan";
@@ -1181,12 +1232,47 @@ function frameRect(rectX, rectY, rectWidth, rectHeight) {
     applyGuidedTransform();
 }
 
+// Positions/sizes the cinematic-mask wrap+window (see their own comment
+// in the <style> above) so the window exactly covers the given panel's
+// on-screen box — or hides the whole thing outside cinematic mode.
+// Reconstructs that box from frameRect()'s own just-applied transform
+// state (guidedScale/guidedTranslateX/Y) rather than recomputing the fit
+// independently, so the spotlight is always in perfect sync with
+// wherever the panel actually rendered: undoing the same transform math
+// frameRect() used, a page pixel (px, py) lands on screen at
+// naturalBox.left + guidedTranslateX + combinedScale * px (and the same
+// for Y), where combinedScale folds together the CSS transform's own
+// scale and naturalBox's already-existing CSS scaling of the canvas
+// (naturalBox.width / pageCanvas.width). The window's own left/top are
+// then re-expressed relative to the wrap's corner (not the viewport),
+// since the wrap is what actually clips it to the reading area.
+function updateCinematicMask(panel) {
+    if (!guidedViewEnabled || guidedTransitionMode !== "cinematic" || !panel) {
+        cinematicMaskWrap.hidden = true;
+        return;
+    }
+    const mainViewBox = mainView.getBoundingClientRect();
+    cinematicMaskWrap.style.left = mainViewBox.left + "px";
+    cinematicMaskWrap.style.top = mainViewBox.top + "px";
+    cinematicMaskWrap.style.width = mainViewBox.width + "px";
+    cinematicMaskWrap.style.height = mainViewBox.height + "px";
+
+    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
+    const combinedScale = guidedScale * (naturalBox.width / pageCanvas.width);
+    cinematicMask.style.left = (naturalBox.left + guidedTranslateX + combinedScale * panel.x - mainViewBox.left) + "px";
+    cinematicMask.style.top = (naturalBox.top + guidedTranslateY + combinedScale * panel.y - mainViewBox.top) + "px";
+    cinematicMask.style.width = (combinedScale * panel.width) + "px";
+    cinematicMask.style.height = (combinedScale * panel.height) + "px";
+    cinematicMaskWrap.hidden = false;
+}
+
 // Undoes frameRect()'s transform, back to the normal (CSS-driven,
 // percentage-width) layout — called whenever Guided View turns off.
 function resetGuidedTransform() {
     pageCanvas.style.transform = "";
     pageCanvas.style.touchAction = "";
     mainView.style.overflow = "";
+    cinematicMaskWrap.hidden = true;
 }
 
 // ----------------------------------------------------------------------
@@ -1313,8 +1399,11 @@ async function ensurePanelsForPage(pageIndex) {
 // guidedTransitionMode (see stepToPanel() below): "pan" (the original
 // behavior) relies purely on frameRect()'s smooth `transform` animation,
 // for a feel of one continuous camera move over the same artwork; "fade"
-// reuses this exact same fadeOut()/fadeIn() cut for same-page steps too,
-// for readers who'd rather each panel arrive as a clean reveal.
+// and "cinematic" both reuse this exact same fadeOut()/fadeIn() cut for
+// same-page steps too, for readers who'd rather each panel arrive as a
+// clean reveal — "cinematic" additionally keeps everything but the
+// current panel masked out for as long as it's showing, not just during
+// the cut itself (see updateCinematicMask()).
 // ----------------------------------------------------------------------
 const FADE_DURATION = 300; // ms — kept snappier than the pan/zoom transition, since this is a full blackout
 
@@ -1353,18 +1442,20 @@ function showGuidedPanel(index, instant) {
     }
     prevBtn.disabled = currentIndex === 0 && currentPanelIndex === 0;
     nextBtn.disabled = currentIndex === pageUrls.length - 1 && currentPanelIndex === currentPanelList.length - 1;
+    updateCinematicMask(panel);
 }
 
 // Moves to a different panel on the CURRENT page (goToPage() below is the
 // equivalent for crossing to a different page) — the one thing goPrev()/
 // goNext()'s same-page branches actually call. Applies
 // guidedTransitionMode: "pan" is just showGuidedPanel()'s own default
-// animated move; "fade" instead cuts to black, jumps instantly behind
-// it (showGuidedPanel(index, true)), and fades back in, guarded by the
-// same guidedTransitionInProgress flag page crossings use so a fast
-// double-tap can't start a second fade before the first finishes.
+// animated move; "fade" and "cinematic" both instead cut to black, jump
+// instantly behind it (showGuidedPanel(index, true)), and fade back in,
+// guarded by the same guidedTransitionInProgress flag page crossings use
+// so a fast double-tap can't start a second fade before the first
+// finishes.
 async function stepToPanel(index) {
-    if (guidedTransitionMode !== "fade") {
+    if (guidedTransitionMode === "pan") {
         showGuidedPanel(index);
         return;
     }
@@ -1446,6 +1537,7 @@ function openGuidedSetup() {
     mangaModeCheckbox.checked = mangaMode;
     transitionModePanRadio.checked = guidedTransitionMode === "pan";
     transitionModeFadeRadio.checked = guidedTransitionMode === "fade";
+    transitionModeCinematicRadio.checked = guidedTransitionMode === "cinematic";
     updateGuidedSetupHint();
     guidedSetupOverlay.hidden = false;
 }
@@ -1460,7 +1552,7 @@ guidedSetupCancelBtn.addEventListener("click", closeGuidedSetup);
 
 guidedSetupStartBtn.addEventListener("click", () => {
     mangaMode = mangaModeCheckbox.checked;
-    guidedTransitionMode = transitionModeFadeRadio.checked ? "fade" : "pan";
+    guidedTransitionMode = document.querySelector('input[name="transitionMode"]:checked').value;
     closeGuidedSetup();
     setGuidedView(true);
 });
