@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--
+============================================================================
+ WHAT IS THIS PAGE?
+============================================================================
+ The ACBF Panel Editor: a tool for a publisher to open a .cbz/.cbr archive
+ and produce an ACBF (Advanced Comic Book Format) metadata file describing
+ where each page's panels are, in reading order. That .acbf file is what
+ lets the reader (index.html)'s Guided View show exact, hand-verified panel
+ boundaries instead of guessing with the on-device ML model.
+
+ Nothing here is uploaded anywhere — the archive you open, and the ACBF
+ file this produces, only ever exist in this browser tab and whatever you
+ explicitly save to your own device.
+
+ HOW IT WORKS:
+   1. Open a comic archive, same as the reader.
+   2. Each page gets a starting draft of panel boxes automatically — either
+      from an .acbf file already inside the archive (if it has one), or
+      from the same on-device panel-detection model the reader uses (see
+      panel-detection.js). Either way, that's a DRAFT: check it, don't
+      assume it's right.
+   3. Drag/resize boxes to correct them, use "+ Add Panel" for anything the
+      draft missed entirely, delete boxes that shouldn't be there, and
+      reorder the panel list on the right to fix reading order (the panel
+      LIST order is what gets written out as ACBF's reading order).
+   4. Export either a standalone .acbf file, or a full repackaged .cbz with
+      that .acbf bundled inside it, ready to open in the reader.
+
+ SHARED CODE: this page loads the exact same panel-detection.js and
+ archive-extract.js modules as index.html (the reader), so the automatic
+ draft and the archive-reading logic can never drift out of sync between
+ the two pages — see those two files' own header comments.
+============================================================================
+-->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ACBF Panel Editor</title>
+<link rel="icon" href="icons/icon-192.png">
+
+<script src="jszip.min.js"></script>
+<script src="unrar/unrar-bundle.js"></script>
+<script src="onnx/ort.min.js"></script>
+<script src="panel-detection.js"></script>
+<script src="archive-extract.js"></script>
+
+<style>
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: #ffca28 #141414;
+    }
+    *::-webkit-scrollbar { width: 12px; height: 12px; }
+    *::-webkit-scrollbar-track { background: #141414; }
+    *::-webkit-scrollbar-thumb {
+        background: linear-gradient(180deg, #ffe082, #ff9800);
+        border: 3px solid #141414;
+        border-radius: 10px;
+    }
+
+    html, body { height: 100%; }
+    body {
+        margin: 0;
+        background: #1a1a1a;
+        color: white;
+        font-family: Arial, sans-serif;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    #topbar {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        flex-wrap: wrap;
+        height: auto;
+        min-height: 48px;
+        background-color: #222;
+        background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1.5px);
+        background-size: 8px 8px;
+        padding: 8px 16px;
+        border-bottom: 3px solid #000;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+    }
+
+    #topbar h1 {
+        font-size: 15px;
+        margin: 0;
+        color: #ffd54f;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+    }
+
+    #topbar label {
+        font-size: 12px;
+        color: #ccc;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+    }
+
+    #bookTitleInput {
+        background: #111;
+        border: 1px solid #444;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        width: 200px;
+    }
+
+    .status { color: #ffd54f; font-weight: bold; font-size: 12px; }
+
+    #topbar a {
+        margin-left: auto;
+        color: #90caf9;
+        font-size: 12px;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+    #topbar a:hover { text-decoration: underline; }
+
+    button {
+        background: linear-gradient(180deg, #ffe082, #ff9800);
+        border: 1px solid #b26a00;
+        color: #2a1800;
+        font-weight: bold;
+        font-size: 12px;
+        padding: 6px 12px;
+        border-radius: 5px;
+        cursor: pointer;
+    }
+    button:hover { filter: brightness(1.08); }
+    button:disabled {
+        background: #444;
+        border-color: #333;
+        color: #888;
+        cursor: not-allowed;
+        filter: none;
+    }
+    button.secondary {
+        background: #2a2a2a;
+        border: 1px solid #555;
+        color: #ddd;
+    }
+    button.small { padding: 2px 7px; font-size: 11px; }
+
+    #log {
+        flex-shrink: 0;
+        margin: 8px 12px 0;
+        background: rgba(17, 17, 17, 0.6);
+        border: 2px solid #000;
+        border-radius: 6px;
+        display: none;
+        overflow: hidden;
+    }
+    #logHeader {
+        display: flex;
+        justify-content: flex-end;
+        padding: 3px 6px;
+        background: rgba(0,0,0,0.25);
+    }
+    #logCloseBtn {
+        width: 15px; height: 15px; padding: 0;
+        border: 1px solid #ffd54f; border-radius: 50%;
+        background: rgba(0,0,0,0.5); color: #ffd54f;
+        font-size: 10px; line-height: 1;
+        display: flex; align-items: center; justify-content: center;
+    }
+    #logText {
+        padding: 4px 10px 6px;
+        color: #8bc34a;
+        font-size: 11px;
+        white-space: pre-wrap;
+        max-height: 60px;
+        overflow-y: auto;
+    }
+
+    #main {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        overflow: hidden;
+    }
+
+    #thumbSidebar {
+        flex-shrink: 0;
+        width: 110px;
+        overflow-y: auto;
+        background: #141414;
+        border-right: 2px solid #000;
+        padding: 8px;
+    }
+    .thumb {
+        margin-bottom: 10px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        border-radius: 4px;
+        overflow: hidden;
+        text-align: center;
+    }
+    .thumb.active { border-color: #ffd54f; }
+    .thumb img { width: 100%; display: block; background: #333; }
+    .thumb .num { font-size: 10px; color: #aaa; padding: 2px 0; }
+    .thumb.has-panels .num { color: #8bc34a; }
+
+    #canvasArea {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: #0d0d0d;
+    }
+
+    #pageNav {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 8px;
+        color: #ffd54f;
+        font-size: 13px;
+        font-weight: bold;
+    }
+
+    #canvasScroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 16px;
+    }
+
+    #canvasWrap {
+        position: relative;
+        max-width: 100%;
+        flex-shrink: 0;
+    }
+    #editorCanvas {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: #333;
+    }
+    #overlayContainer {
+        position: absolute;
+        inset: 0;
+    }
+
+    .panel-box {
+        position: absolute;
+        border: 2px solid #ffd54f;
+        background: rgba(255, 213, 79, 0.12);
+        cursor: move;
+        touch-action: none;
+    }
+    .panel-box.selected {
+        border-color: #ff5252;
+        background: rgba(255, 82, 82, 0.18);
+        z-index: 5;
+    }
+    .panel-box .panel-num {
+        position: absolute;
+        top: -1px;
+        left: -1px;
+        background: #ffd54f;
+        color: #2a1800;
+        font-size: 11px;
+        font-weight: bold;
+        padding: 1px 5px;
+        border-bottom-right-radius: 4px;
+        pointer-events: none;
+    }
+    .panel-box.selected .panel-num { background: #ff5252; color: white; }
+    .panel-box .resize-handle {
+        position: absolute;
+        right: -6px;
+        bottom: -6px;
+        width: 14px;
+        height: 14px;
+        background: #ffd54f;
+        border: 1px solid #2a1800;
+        border-radius: 50%;
+        cursor: nwse-resize;
+        touch-action: none;
+    }
+    .panel-box.selected .resize-handle { background: #ff5252; }
+
+    #panelSidebar {
+        flex-shrink: 0;
+        width: 220px;
+        background: #141414;
+        border-left: 2px solid #000;
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+        overflow: hidden;
+    }
+    #panelSidebar h2 {
+        font-size: 13px;
+        color: #ffd54f;
+        margin: 0 0 8px;
+    }
+    #panelList {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        overflow-y: auto;
+        flex: 1;
+        min-height: 0;
+    }
+    #panelList li {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: #1e1e1e;
+        border: 1px solid #333;
+        border-radius: 4px;
+        padding: 5px 6px;
+        margin-bottom: 5px;
+        font-size: 12px;
+        cursor: pointer;
+    }
+    #panelList li.selected { border-color: #ff5252; background: #2a1414; }
+    #panelList li .label { flex: 1; }
+    #panelList li .btns { display: flex; gap: 2px; }
+
+    #sidebarActions {
+        flex-shrink: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-top: 8px;
+    }
+
+    #exportBar {
+        flex-shrink: 0;
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        padding: 10px;
+        background: #222;
+        border-top: 3px solid #000;
+    }
+
+    #emptyState {
+        margin: auto;
+        color: #777;
+        font-size: 13px;
+        text-align: center;
+    }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+    <h1>ACBF Panel Editor</h1>
+    <input type="file" id="fileInput" accept=".cbz,.cbr,.zip,.rar">
+    <span class="status" id="status"></span>
+    <label>Title
+        <input type="text" id="bookTitleInput" placeholder="Book title">
+    </label>
+    <label id="mangaModeRow">
+        <input type="checkbox" id="mangaModeCheckbox">
+        Manga mode (right-to-left) — affects new auto-detection only
+    </label>
+    <a href="index.html">&larr; Back to Reader</a>
+</div>
+
+<div id="log">
+    <div id="logHeader"><button id="logCloseBtn">&times;</button></div>
+    <div id="logText"></div>
+</div>
+
+<div id="main">
+    <div id="thumbSidebar" hidden></div>
+
+    <div id="canvasArea">
+        <div id="emptyState">Open a .cbz or .cbr archive to start authoring its ACBF panel metadata.</div>
+        <div id="pageNav" hidden>
+            <button class="secondary small" id="prevPageBtn">&#8249; Prev</button>
+            <span id="pageIndicator">1 / 1</span>
+            <button class="secondary small" id="nextPageBtn">Next &#8250;</button>
+        </div>
+        <div id="canvasScroll" hidden>
+            <div id="canvasWrap">
+                <canvas id="editorCanvas"></canvas>
+                <div id="overlayContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="panelSidebar" hidden>
+        <h2 id="panelListHeader">Panels</h2>
+        <ol id="panelList"></ol>
+        <div id="sidebarActions">
+            <button id="addPanelBtn">+ Add Panel</button>
+            <button class="secondary" id="detectBtn">Detect Automatically</button>
+        </div>
+    </div>
+</div>
+
+<div id="exportBar" hidden>
+    <button id="exportAcbfBtn">Export .acbf</button>
+    <button id="exportCbzBtn">Export CBZ + ACBF</button>
+</div>
+
+<script>
+// ============================================================================
+// STATE
+// ============================================================================
+let pages = [];              // [{ name, getBlob, rects, naturalWidth, naturalHeight, blobUrl }]
+let acbfFramesByName = new Map();
+let currentPageIndex = 0;
+let currentImage = null;     // the decoded <img> for the page currently drawn
+let mangaMode = false;
+let selectedPanelIndex = -1;
+let dragState = null;
+
+const fileInput = document.getElementById("fileInput");
+const status = document.getElementById("status");
+const bookTitleInput = document.getElementById("bookTitleInput");
+const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
+const log = document.getElementById("log");
+const logText = document.getElementById("logText");
+const logCloseBtn = document.getElementById("logCloseBtn");
+const thumbSidebar = document.getElementById("thumbSidebar");
+const emptyState = document.getElementById("emptyState");
+const pageNav = document.getElementById("pageNav");
+const pageIndicator = document.getElementById("pageIndicator");
+const prevPageBtn = document.getElementById("prevPageBtn");
+const nextPageBtn = document.getElementById("nextPageBtn");
+const canvasScroll = document.getElementById("canvasScroll");
+const canvasWrap = document.getElementById("canvasWrap");
+const editorCanvas = document.getElementById("editorCanvas");
+const overlayContainer = document.getElementById("overlayContainer");
+const panelSidebar = document.getElementById("panelSidebar");
+const panelListHeader = document.getElementById("panelListHeader");
+const panelList = document.getElementById("panelList");
+const addPanelBtn = document.getElementById("addPanelBtn");
+const detectBtn = document.getElementById("detectBtn");
+const exportBar = document.getElementById("exportBar");
+const exportAcbfBtn = document.getElementById("exportAcbfBtn");
+const exportCbzBtn = document.getElementById("exportCbzBtn");
+
+let logCollapsed = false;
+function writeLog(text) {
+    if (!logCollapsed) log.style.display = "block";
+    logText.textContent += text + "\n";
+    console.log(text);
+}
+logCloseBtn.addEventListener("click", () => {
+    logCollapsed = true;
+    log.style.display = "none";
+});
+
+mangaModeCheckbox.addEventListener("change", () => {
+    mangaMode = mangaModeCheckbox.checked;
+});
+
+// ============================================================================
+// OPENING A FILE
+// ============================================================================
+fileInput.addEventListener("change", async () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    logText.textContent = "";
+    logCollapsed = false;
+    status.textContent = "Loading...";
+
+    try {
+        writeLog("Opening: " + file.name);
+        writeLog("File Size: " + file.size + " bytes");
+
+        const { pages: extractedPages, acbfText } = await ArchiveExtract.extractComicArchive(file, writeLog);
+        writeLog("\nImage count: " + extractedPages.length);
+
+        if (extractedPages.length === 0) {
+            throw new Error("No supported image files found inside archive.");
+        }
+
+        acbfFramesByName = acbfText ? PanelDetection.parseAcbfFrames(acbfText) : new Map();
+        if (acbfText) {
+            writeLog(acbfFramesByName.size > 0
+                ? "Found an existing .acbf with panel data for " + acbfFramesByName.size + " page(s) — using it as the starting draft for those."
+                : "Found an .acbf file but couldn't read panel data from it — starting from automatic detection instead.");
+        }
+
+        pages = extractedPages.map(p => ({
+            name: p.name,
+            getBlob: p.getBlob,
+            rects: null,          // null = not yet drafted; filled in on first visit
+            naturalWidth: 0,
+            naturalHeight: 0,
+            blobUrl: null
+        }));
+
+        const titleGuess = file.name.replace(/\.(cbz|cbr|zip|rar)$/i, "");
+        bookTitleInput.value = titleGuess;
+
+        status.textContent = pages.length + " page(s) loaded";
+        emptyState.hidden = true;
+        pageNav.hidden = false;
+        canvasScroll.hidden = false;
+        panelSidebar.hidden = false;
+        exportBar.hidden = false;
+        thumbSidebar.hidden = false;
+
+        await buildThumbnails();
+        await showPage(0);
+
+    } catch (err) {
+        writeLog("ERROR: " + err.message);
+        status.textContent = "Failed to open file.";
+        alert("Couldn't open that file:\n\n" + err.message);
+    }
+});
+
+function baseName(name) {
+    return name.split(/[\\/]/).pop().toLowerCase();
+}
+
+async function buildThumbnails() {
+    thumbSidebar.innerHTML = "";
+    for (let i = 0; i < pages.length; i++) {
+        const page = pages[i];
+        const blob = await page.getBlob();
+        const url = URL.createObjectURL(blob);
+        const div = document.createElement("div");
+        div.className = "thumb";
+        div.dataset.index = String(i);
+        const img = document.createElement("img");
+        img.src = url;
+        const num = document.createElement("div");
+        num.className = "num";
+        num.textContent = String(i + 1);
+        div.appendChild(img);
+        div.appendChild(num);
+        div.addEventListener("click", () => showPage(i));
+        thumbSidebar.appendChild(div);
+    }
+    refreshThumbActiveState();
+}
+
+function refreshThumbActiveState() {
+    thumbSidebar.querySelectorAll(".thumb").forEach(div => {
+        const i = Number(div.dataset.index);
+        div.classList.toggle("active", i === currentPageIndex);
+        div.classList.toggle("has-panels", !!(pages[i].rects && pages[i].rects.length > 0));
+    });
+}
+
+// ============================================================================
+// SHOWING A PAGE
+// ============================================================================
+function flattenPanelRows(rows) {
+    const result = [];
+    for (const row of rows) result.push(...(mangaMode ? row.slice().reverse() : row));
+    return result;
+}
+
+async function loadPageImage(page) {
+    const blob = await page.getBlob();
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = () => reject(new Error("Failed to decode image: " + page.name));
+        img.src = url;
+    });
+    page.blobUrl = url;
+    page.naturalWidth = img.naturalWidth;
+    page.naturalHeight = img.naturalHeight;
+    return img;
+}
+
+async function draftPanelsIfNeeded(page) {
+    if (page.rects !== null) return;
+
+    const acbfRects = acbfFramesByName.get(baseName(page.name));
+    if (acbfRects && acbfRects.length > 0) {
+        page.rects = acbfRects.map(r => ({ ...r }));
+        return;
+    }
+
+    try {
+        const rows = await PanelDetection.detectPanels(editorCanvas);
+        page.rects = flattenPanelRows(rows).map(r => ({ ...r }));
+    } catch (err) {
+        writeLog("Automatic detection failed (" + err.message + ") — starting with a blank page instead.");
+        page.rects = [];
+    }
+}
+
+async function showPage(index) {
+    currentPageIndex = Math.max(0, Math.min(index, pages.length - 1));
+    const page = pages[currentPageIndex];
+
+    selectedPanelIndex = -1;
+    pageIndicator.textContent = (currentPageIndex + 1) + " / " + pages.length;
+    prevPageBtn.disabled = currentPageIndex === 0;
+    nextPageBtn.disabled = currentPageIndex === pages.length - 1;
+
+    status.textContent = "Loading page " + (currentPageIndex + 1) + "...";
+    currentImage = await loadPageImage(page);
+
+    editorCanvas.width = page.naturalWidth;
+    editorCanvas.height = page.naturalHeight;
+    editorCanvas.getContext("2d").drawImage(currentImage, 0, 0);
+
+    if (page.rects === null) {
+        status.textContent = "Detecting panels...";
+        await draftPanelsIfNeeded(page);
+    }
+
+    status.textContent = pages.length + " page(s) loaded";
+    renderOverlay();
+    renderPanelList();
+    refreshThumbActiveState();
+}
+
+prevPageBtn.addEventListener("click", () => showPage(currentPageIndex - 1));
+nextPageBtn.addEventListener("click", () => showPage(currentPageIndex + 1));
+
+// ============================================================================
+// OVERLAY RENDERING + DRAG/RESIZE EDITING
+// Boxes are positioned with percentages relative to #canvasWrap, which is
+// sized exactly to the canvas's own rendered box (a plain block-level
+// child) — so the overlay always lines up with the image regardless of
+// how big the canvas is drawn on screen, with no manual resize handling.
+// ============================================================================
+function renderOverlay() {
+    overlayContainer.innerHTML = "";
+    const page = pages[currentPageIndex];
+    (page.rects || []).forEach((rect, i) => {
+        const box = document.createElement("div");
+        box.className = "panel-box" + (i === selectedPanelIndex ? " selected" : "");
+        box.style.left = (rect.x / page.naturalWidth * 100) + "%";
+        box.style.top = (rect.y / page.naturalHeight * 100) + "%";
+        box.style.width = (rect.width / page.naturalWidth * 100) + "%";
+        box.style.height = (rect.height / page.naturalHeight * 100) + "%";
+
+        const numLabel = document.createElement("div");
+        numLabel.className = "panel-num";
+        numLabel.textContent = String(i + 1);
+        box.appendChild(numLabel);
+
+        const handle = document.createElement("div");
+        handle.className = "resize-handle";
+        box.appendChild(handle);
+
+        box.addEventListener("pointerdown", (e) => {
+            selectedPanelIndex = i;
+            renderOverlay();
+            renderPanelList();
+            startDrag(e, i, "move");
+        });
+        handle.addEventListener("pointerdown", (e) => {
+            e.stopPropagation();
+            selectedPanelIndex = i;
+            renderOverlay();
+            renderPanelList();
+            startDrag(e, i, "resize");
+        });
+
+        overlayContainer.appendChild(box);
+    });
+}
+
+function startDrag(e, index, type) {
+    e.preventDefault();
+    const page = pages[currentPageIndex];
+    const containerRect = canvasWrap.getBoundingClientRect();
+    dragState = {
+        type,
+        index,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startRect: { ...page.rects[index] },
+        scaleX: page.naturalWidth / containerRect.width,
+        scaleY: page.naturalHeight / containerRect.height
+    };
+    document.addEventListener("pointermove", onDragMove);
+    document.addEventListener("pointerup", onDragEnd);
+}
+
+function onDragMove(e) {
+    if (!dragState) return;
+    const page = pages[currentPageIndex];
+    const rect = page.rects[dragState.index];
+    const dx = (e.clientX - dragState.startClientX) * dragState.scaleX;
+    const dy = (e.clientY - dragState.startClientY) * dragState.scaleY;
+    const MIN_SIZE = 10;
+
+    if (dragState.type === "move") {
+        rect.x = Math.max(0, Math.min(page.naturalWidth - rect.width, dragState.startRect.x + dx));
+        rect.y = Math.max(0, Math.min(page.naturalHeight - rect.height, dragState.startRect.y + dy));
+    } else {
+        rect.width = Math.max(MIN_SIZE, Math.min(page.naturalWidth - rect.x, dragState.startRect.width + dx));
+        rect.height = Math.max(MIN_SIZE, Math.min(page.naturalHeight - rect.y, dragState.startRect.height + dy));
+    }
+    renderOverlay();
+}
+
+function onDragEnd() {
+    dragState = null;
+    document.removeEventListener("pointermove", onDragMove);
+    document.removeEventListener("pointerup", onDragEnd);
+    refreshThumbActiveState();
+}
+
+// ============================================================================
+// PANEL LIST SIDEBAR
+// ============================================================================
+function renderPanelList() {
+    const page = pages[currentPageIndex];
+    const rects = page.rects || [];
+    panelListHeader.textContent = "Panels (" + rects.length + ")";
+    panelList.innerHTML = "";
+
+    rects.forEach((rect, i) => {
+        const li = document.createElement("li");
+        li.className = i === selectedPanelIndex ? "selected" : "";
+
+        const label = document.createElement("span");
+        label.className = "label";
+        label.textContent = "Panel " + (i + 1);
+        li.addEventListener("click", () => {
+            selectedPanelIndex = i;
+            renderOverlay();
+            renderPanelList();
+        });
+
+        const btns = document.createElement("span");
+        btns.className = "btns";
+
+        const upBtn = document.createElement("button");
+        upBtn.className = "small secondary";
+        upBtn.textContent = "↑";
+        upBtn.title = "Move earlier in reading order";
+        upBtn.disabled = i === 0;
+        upBtn.addEventListener("click", (e) => { e.stopPropagation(); movePanel(i, -1); });
+
+        const downBtn = document.createElement("button");
+        downBtn.className = "small secondary";
+        downBtn.textContent = "↓";
+        downBtn.title = "Move later in reading order";
+        downBtn.disabled = i === rects.length - 1;
+        downBtn.addEventListener("click", (e) => { e.stopPropagation(); movePanel(i, 1); });
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "small secondary";
+        delBtn.textContent = "✕";
+        delBtn.title = "Delete panel";
+        delBtn.addEventListener("click", (e) => { e.stopPropagation(); deletePanel(i); });
+
+        btns.appendChild(upBtn);
+        btns.appendChild(downBtn);
+        btns.appendChild(delBtn);
+        li.appendChild(label);
+        li.appendChild(btns);
+        panelList.appendChild(li);
+    });
+}
+
+function movePanel(index, direction) {
+    const rects = pages[currentPageIndex].rects;
+    const target = index + direction;
+    if (target < 0 || target >= rects.length) return;
+    [rects[index], rects[target]] = [rects[target], rects[index]];
+    selectedPanelIndex = target;
+    renderOverlay();
+    renderPanelList();
+}
+
+function deletePanel(index) {
+    const rects = pages[currentPageIndex].rects;
+    rects.splice(index, 1);
+    selectedPanelIndex = -1;
+    renderOverlay();
+    renderPanelList();
+    refreshThumbActiveState();
+}
+
+addPanelBtn.addEventListener("click", () => {
+    const page = pages[currentPageIndex];
+    if (!page.rects) page.rects = [];
+    const w = page.naturalWidth * 0.4;
+    const h = page.naturalHeight * 0.3;
+    page.rects.push({
+        x: (page.naturalWidth - w) / 2,
+        y: (page.naturalHeight - h) / 2,
+        width: w,
+        height: h
+    });
+    selectedPanelIndex = page.rects.length - 1;
+    renderOverlay();
+    renderPanelList();
+    refreshThumbActiveState();
+});
+
+detectBtn.addEventListener("click", async () => {
+    const page = pages[currentPageIndex];
+    if (page.rects && page.rects.length > 0) {
+        const proceed = confirm("This replaces the " + page.rects.length + " panel(s) already on this page with a fresh automatic detection. Continue?");
+        if (!proceed) return;
+    }
+    status.textContent = "Detecting panels...";
+    try {
+        const rows = await PanelDetection.detectPanels(editorCanvas);
+        page.rects = flattenPanelRows(rows).map(r => ({ ...r }));
+    } catch (err) {
+        writeLog("Automatic detection failed: " + err.message);
+        alert("Automatic detection failed:\n\n" + err.message);
+    }
+    status.textContent = pages.length + " page(s) loaded";
+    selectedPanelIndex = -1;
+    renderOverlay();
+    renderPanelList();
+    refreshThumbActiveState();
+});
+
+// ============================================================================
+// EXPORT
+// ============================================================================
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function buildAcbfPagesData() {
+    return pages.map(p => ({ imageName: p.name, rects: p.rects || [] }));
+}
+
+exportAcbfBtn.addEventListener("click", () => {
+    const xml = PanelDetection.buildAcbfXml(buildAcbfPagesData(), bookTitleInput.value || "Untitled");
+    const blob = new Blob([xml], { type: "application/xml" });
+    downloadBlob(blob, (bookTitleInput.value || "comic") + ".acbf");
+});
+
+exportCbzBtn.addEventListener("click", async () => {
+    status.textContent = "Building CBZ...";
+    try {
+        const zip = new JSZip();
+        for (const page of pages) {
+            const blob = await page.getBlob();
+            zip.file(page.name, blob);
+        }
+        const xml = PanelDetection.buildAcbfXml(buildAcbfPagesData(), bookTitleInput.value || "Untitled");
+        zip.file((bookTitleInput.value || "comic") + ".acbf", xml);
+        const cbzBlob = await zip.generateAsync({ type: "blob" });
+        downloadBlob(cbzBlob, (bookTitleInput.value || "comic") + ".cbz");
+    } catch (err) {
+        writeLog("Failed to build CBZ: " + err.message);
+        alert("Failed to build CBZ:\n\n" + err.message);
+    }
+    status.textContent = pages.length + " page(s) loaded";
+});
+</script>
+</body>
+</html>

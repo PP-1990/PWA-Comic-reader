@@ -11,6 +11,7 @@ A comic book reader that lives entirely in your browser. Open a `.cbz` or `.cbr`
 - **Guided View** steps through a page panel by panel, automatically panning and zooming to each one in reading order — right-to-left for manga, if you tell it to. An on-device machine learning model finds the actual panel boundaries (no server, no API calls, nothing sent anywhere); if a page has nothing it can confidently detect, it just shows the whole page rather than guessing wrong. You can also drag or scroll to nudge the framing yourself if it's ever slightly off.
 - **Manual zoom, double-tap to zoom, and a thumbnail sidebar** (a swipeable filmstrip on mobile) for everyday reading.
 - **Works with no server at all.** You can open `index.html` straight from disk, with no internet connection and nothing installed, and it still reads comics — Guided View's panel detection included.
+- **[ACBF Panel Editor](editor.html)** — a separate tool for publishers: open an archive, get an automatic first-draft of every page's panels (from the same on-device model, or from an `.acbf` file already inside the archive), then drag, resize, add, delete, and reorder panels by hand before exporting a standalone `.acbf` file or a repackaged `.cbz` with it bundled in. Guided View always prefers hand-authored ACBF data over guessing.
 
 ## Why
 
@@ -18,7 +19,7 @@ Most comic readers either need a native app install or ask you to upload your fi
 
 ## How it's built
 
-A single `index.html` file with all the HTML, CSS, and JavaScript, plus a handful of vendored dependencies (JSZip for `.cbz`, `unrar` compiled to WebAssembly for `.cbr`, ONNX Runtime Web for Guided View's panel-detection model) — no build step, no framework, no bundler.
+A single `index.html` file with all the HTML, CSS, and JavaScript, plus a handful of vendored dependencies (JSZip for `.cbz`, `unrar` compiled to WebAssembly for `.cbr`, ONNX Runtime Web for Guided View's panel-detection model) — no build step, no framework, no bundler. `editor.html` is a second, equally self-contained page that shares the archive-reading and panel-detection code (`archive-extract.js`, `panel-detection.js`) with the reader instead of duplicating it.
 
 See [`docs/architecture.html`](docs/architecture.html) for an illustrated breakdown of how it all fits together, from opening a file to how Guided View finds panels.
 

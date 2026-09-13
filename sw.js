@@ -23,7 +23,7 @@
 // the whole point of this file is to avoid re-downloading things.
 // ============================================================================
 
-const CACHE_NAME = "cbz-reader-v36";
+const CACHE_NAME = "cbz-reader-v39";
 
 // Every file the app needs in order to run at all. These all get
 // downloaded and saved to the local cache up front (see "install" below),
@@ -42,12 +42,15 @@ const CACHE_NAME = "cbz-reader-v36";
 // files get saved for every use after that, online or off.
 const APP_SHELL = [
     "./index.html",
+    "./editor.html",
     "./manifest.json",
     "./jszip.min.js",
     "./icons/icon-192.png",
     "./icons/icon-512.png",
     "./unrar/unrar-bundle.js",
-    "./onnx/ort.min.js"
+    "./onnx/ort.min.js",
+    "./panel-detection.js",
+    "./archive-extract.js"
 ];
 
 // Runs once, the first time this exact version of sw.js is loaded (i.e.
