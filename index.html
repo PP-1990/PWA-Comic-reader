@@ -437,9 +437,12 @@
        pills) so it reads as a genuine full-screen cut; pointer-events:none
        since it's purely decorative and the fades are always short and
        driven by code, never something a user needs to click through. */
+    /* Positioned/sized in JS (see fadeOut() in the <script>) to exactly
+       cover #mainView, not the whole screen — so the sidebar, console,
+       and top bar all stay visible right through a fade-to-black cut,
+       the same reasoning as cinematic mode's spotlight mask above. */
     #guidedFadeOverlay {
         position: fixed;
-        inset: 0;
         background: #0c0c0c;
         opacity: 0;
         pointer-events: none;
@@ -1407,8 +1410,21 @@ async function ensurePanelsForPage(pageIndex) {
 // ----------------------------------------------------------------------
 const FADE_DURATION = 300; // ms — kept snappier than the pan/zoom transition, since this is a full blackout
 
+// Re-measured right before every fade-out (rather than kept in sync via
+// a resize listener, like cinematicMask's wrap is) since a fade is only
+// ever on screen for FADE_DURATION at a time — cheap enough to just
+// always measure fresh, with no state to risk going stale.
+function positionFadeOverlay() {
+    const mainViewBox = mainView.getBoundingClientRect();
+    fadeOverlay.style.left = mainViewBox.left + "px";
+    fadeOverlay.style.top = mainViewBox.top + "px";
+    fadeOverlay.style.width = mainViewBox.width + "px";
+    fadeOverlay.style.height = mainViewBox.height + "px";
+}
+
 function fadeOut() {
     return new Promise(resolve => {
+        positionFadeOverlay();
         fadeOverlay.style.opacity = "1";
         setTimeout(resolve, FADE_DURATION);
     });
