@@ -344,11 +344,57 @@
         flex-direction: column;
         padding: 10px;
         overflow: hidden;
+        transition: width 200ms ease;
+    }
+    #panelSidebarHeader {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-bottom: 8px;
     }
     #panelSidebar h2 {
         font-size: 13px;
         color: #ffd54f;
-        margin: 0 0 8px;
+        margin: 0;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+    #panelSidebarToggle {
+        flex-shrink: 0;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border-radius: 4px;
+        font-size: 12px;
+        line-height: 1;
+    }
+    /* Collapsed: just the header (with its toggle button, always
+       reachable) stays visible — the list and Add/Detect actions hide,
+       and the sidebar itself shrinks to a thin strip so #canvasArea's
+       own flex:1 reclaims the freed space automatically, no separate
+       resize logic needed beyond re-fitting the canvas at its new size
+       (see the panelSidebarToggle click handler in the <script>). */
+    #panelSidebar.collapsed {
+        /* min/max alongside width, not just width alone: as a flex item,
+           this element's automatic min-width otherwise keeps it from
+           actually shrinking past its content's own natural minimum
+           (a plain `width: 40px` here was observed NOT to visibly
+           shrink it at all) — pinning min/max to the same 40px forces
+           the real rendered size regardless of content. */
+        width: 40px;
+        min-width: 40px;
+        max-width: 40px;
+        padding: 10px 6px;
+    }
+    #panelSidebar.collapsed #panelListHeader,
+    #panelSidebar.collapsed #panelList,
+    #panelSidebar.collapsed #sidebarActions {
+        display: none;
+    }
+    #panelSidebar.collapsed #panelSidebarHeader {
+        justify-content: center;
     }
     #panelList {
         list-style: none;
@@ -456,6 +502,29 @@
             flex-shrink: 0;
             border-left: none;
             border-top: 2px solid #000;
+            transition: height 200ms ease;
+        }
+
+        /* On the stacked mobile layout the sidebar collapses by HEIGHT
+           instead of width (it's a bottom panel here, not a side one) —
+           back to full width, just short enough to show only the header. */
+        #panelSidebar.collapsed {
+            /* Same min/max-pinning idea as the desktop .collapsed rule
+               above (needed there for the same auto-min-size reason),
+               but on height instead of width this time — and explicitly
+               overriding that desktop rule's OWN min/max-WIDTH pin back
+               to 100%, since this rule doesn't override it just by
+               being more specific (same specificity, different property:
+               desktop's max-width:40px would otherwise still clamp this
+               too, since it isn't itself scoped to only the desktop
+               breakpoint). */
+            width: 100%;
+            min-width: 100%;
+            max-width: 100%;
+            height: 40px;
+            min-height: 40px;
+            max-height: 40px;
+            padding: 10px;
         }
     }
 </style>
@@ -506,7 +575,10 @@
     </div>
 
     <div id="panelSidebar" hidden>
-        <h2 id="panelListHeader">Panels</h2>
+        <div id="panelSidebarHeader">
+            <h2 id="panelListHeader">Panels</h2>
+            <button id="panelSidebarToggle" class="small secondary" title="Collapse panel list">&#8250;</button>
+        </div>
         <ol id="panelList"></ol>
         <div id="sidebarActions">
             <button id="addPanelBtn">+ Add Panel</button>
@@ -557,6 +629,7 @@ const canvasWrap = document.getElementById("canvasWrap");
 const editorCanvas = document.getElementById("editorCanvas");
 const overlayContainer = document.getElementById("overlayContainer");
 const panelSidebar = document.getElementById("panelSidebar");
+const panelSidebarToggle = document.getElementById("panelSidebarToggle");
 const panelListHeader = document.getElementById("panelListHeader");
 const panelList = document.getElementById("panelList");
 const addPanelBtn = document.getElementById("addPanelBtn");
@@ -885,6 +958,21 @@ function onDragEnd() {
 // ============================================================================
 // PANEL LIST SIDEBAR
 // ============================================================================
+
+// Collapsing the sidebar down to a thin strip (see .collapsed in the
+// <style> above) frees up real screen space for the canvas either way —
+// width on desktop's side-by-side layout, height on mobile's stacked
+// one — but #canvasArea's flex:1 only reclaims that space in LAYOUT
+// terms; the canvas's own drawn size (an explicit pixel width set by
+// applyEditorZoom(), not a percentage) needs recomputing against the
+// new available space, same as it already does on window resize.
+panelSidebarToggle.addEventListener("click", () => {
+    const collapsed = panelSidebar.classList.toggle("collapsed");
+    panelSidebarToggle.innerHTML = collapsed ? "&#8249;" : "&#8250;";
+    panelSidebarToggle.title = collapsed ? "Expand panel list" : "Collapse panel list";
+    if (pages.length > 0) applyEditorZoom();
+});
+
 function renderPanelList() {
     const page = pages[currentPageIndex];
     const rects = page.rects || [];
