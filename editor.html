@@ -103,7 +103,12 @@
         display: flex;
         align-items: center;
         gap: 4px;
-        white-space: nowrap;
+        /* NOT nowrap, unlike #topbar h1/a below — this covers the manga-
+           mode checkbox's label too, whose full text ("Manga mode
+           (right-to-left) — affects new auto-detection only") is long
+           enough to overflow narrow/phone screens if it's forced onto a
+           single line instead of allowed to wrap. */
+        max-width: 100%;
     }
 
     #bookTitleInput {
@@ -402,6 +407,56 @@
         color: #777;
         font-size: 13px;
         text-align: center;
+    }
+
+    /* Below tablet width, #thumbSidebar (110px) and #panelSidebar (220px)
+       together were eating 330px of fixed width regardless of the
+       viewport — on a ~375px phone that left the canvas (where the
+       actual panel editing happens) a sliver only a few px wide. Stack
+       everything vertically instead: the thumbnail rail becomes a
+       horizontal filmstrip across the top (same treatment as the
+       reader's own mobile layout) and the panel list moves below the
+       canvas with a capped height instead of a fixed side column, so the
+       canvas itself gets however much width the screen actually has. */
+    @media (max-width: 900px) {
+        #bookTitleInput {
+            width: 140px;
+        }
+
+        #main {
+            flex-direction: column;
+        }
+
+        #thumbSidebar {
+            width: 100%;
+            height: 84px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: row;
+            overflow-x: auto;
+            overflow-y: hidden;
+            border-right: none;
+            border-bottom: 2px solid #000;
+            gap: 8px;
+        }
+
+        .thumb {
+            flex-shrink: 0;
+            width: 54px;
+            margin-bottom: 0;
+        }
+
+        #canvasArea {
+            min-height: 0;
+        }
+
+        #panelSidebar {
+            width: 100%;
+            height: 240px;
+            flex-shrink: 0;
+            border-left: none;
+            border-top: 2px solid #000;
+        }
     }
 </style>
 </head>

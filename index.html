@@ -726,6 +726,29 @@
             font-size: 12px;
         }
 
+        /* The file picker (which the browser renders and sizes itself —
+           its "No file chosen" text alone is often 150-250px) plus the
+           status text plus the ACBF Editor link no longer all fit on one
+           44px-tall row at phone widths. Letting the bar wrap (and grow
+           past 44px to fit however many lines that takes) keeps every
+           control fully on screen instead of the editor link running off
+           the right edge — the actual bug being fixed here. */
+        #controls {
+            height: auto;
+            min-height: 44px;
+            flex-wrap: wrap;
+            row-gap: 4px;
+            padding: 8px 12px;
+        }
+
+        /* Always its own centered line on mobile, rather than competing
+           with the file picker for the same row. */
+        #editorLink {
+            flex-basis: 100%;
+            margin-left: 0;
+            text-align: center;
+        }
+
         /* On mobile #zoomControls moves down to sit above the nav pill
            (see its own rule further below) instead of the top-right
            corner, so there's no collision to avoid here — go back to a
