@@ -17,15 +17,24 @@
 
  HOW IT WORKS:
    1. Open a comic archive, same as the reader.
-   2. Each page gets a starting draft of panel boxes automatically — either
-      from an .acbf file already inside the archive (if it has one), or
-      from the same on-device panel-detection model the reader uses (see
-      panel-detection.js). Either way, that's a DRAFT: check it, don't
-      assume it's right.
-   3. Drag/resize boxes to correct them, use "+ Add Panel" for anything the
-      draft missed entirely, delete boxes that shouldn't be there, and
-      reorder the panel list on the right to fix reading order (the panel
-      LIST order is what gets written out as ACBF's reading order).
+   2. Each page gets a starting draft of panels automatically, each one a
+      plain rectangle — either from an .acbf file already inside the
+      archive (if it has one), or from the same on-device panel-detection
+      model the reader uses (see panel-detection.js). Either way, that's
+      a DRAFT: check it, don't assume it's right.
+   3. Every panel is really a polygon (a rectangle is just its simplest,
+      4-point case) — drag a corner's handle to reshape that point alone
+      (hold Shift while dragging, or check "Keep proportions" in the
+      panel list to make it the default, to scale the whole panel
+      proportionally instead, from the opposite corner), or drag the
+      smaller dot at an edge's midpoint to add a whole new point there,
+      turning a straight edge into two (an angled or trapezoidal panel
+      border, say). Double-click a corner to remove it again. Use
+      "+ Add Panel" for anything the draft missed entirely, delete
+      panels that shouldn't be there, and reorder the panel list on the
+      right to fix reading
+      order (the panel LIST order is what gets written out as ACBF's
+      reading order).
    4. Export either a standalone .acbf file, or a full repackaged .cbz with
       that .acbf bundled inside it, ready to open in the reader.
 
@@ -296,44 +305,89 @@
         inset: 0;
     }
 
-    .panel-box {
+    /* Panels are drawn as an SVG polygon per panel (an ordinary rectangle
+       is just the 4-point case — see the "points" field throughout the
+       <script> below) rather than CSS-boxed <div>s, since a div's
+       left/top/width/height can't describe a non-rectangular shape.
+       viewBox is set to the page's own natural pixel size (see
+       renderOverlay()), so a panel's "points" — already in that same
+       pixel space — can be used as the polygon's own points attribute
+       with no separate percentage conversion. */
+    .panel-svg {
         position: absolute;
-        border: 2px solid #ffd54f;
-        background: rgba(255, 213, 79, 0.12);
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        /* The svg root itself must NOT capture pointer events, or empty
+           space between panels (most of the page) would block clicks/
+           drags meant for whatever's underneath — only the actual
+           polygon shapes (given pointer-events:auto below) should. */
+        pointer-events: none;
+    }
+    .panel-polygon {
+        fill: rgba(255, 213, 79, 0.12);
+        stroke: #ffd54f;
+        stroke-width: 2;
+        vector-effect: non-scaling-stroke; /* keep a crisp 2px outline regardless of the viewBox's own scale */
         cursor: move;
         touch-action: none;
+        pointer-events: auto;
     }
-    .panel-box.selected {
-        border-color: #ff5252;
-        background: rgba(255, 82, 82, 0.18);
-        z-index: 5;
+    .panel-polygon.selected {
+        fill: rgba(255, 82, 82, 0.18);
+        stroke: #ff5252;
     }
-    .panel-box .panel-num {
+    .panel-num {
         position: absolute;
-        top: -1px;
-        left: -1px;
+        transform: translate(0, -100%);
         background: #ffd54f;
         color: #2a1800;
         font-size: 11px;
         font-weight: bold;
         padding: 1px 5px;
-        border-bottom-right-radius: 4px;
+        border-radius: 3px 3px 3px 0;
         pointer-events: none;
+        white-space: nowrap;
     }
-    .panel-box.selected .panel-num { background: #ff5252; color: white; }
-    .panel-box .resize-handle {
+    .panel-num.selected { background: #ff5252; color: white; }
+
+    /* Vertex handles — one per point, on EVERY edge's both ends, so any
+       corner of any panel (not just a fixed bottom-right one) can be
+       dragged to reshape it. Only rendered for the currently selected
+       panel (see renderOverlay()) — with several panels per page,
+       showing every panel's full handle set at once would bury the
+       actual artwork in dots; the polygon outline alone (always visible)
+       is enough to click a panel and select it first. */
+    .vertex-handle {
         position: absolute;
-        right: -6px;
-        bottom: -6px;
         width: 14px;
         height: 14px;
-        background: #ffd54f;
+        margin: -7px 0 0 -7px;
+        background: #ff5252;
         border: 1px solid #2a1800;
         border-radius: 50%;
-        cursor: nwse-resize;
+        cursor: pointer;
         touch-action: none;
     }
-    .panel-box.selected .resize-handle { background: #ff5252; }
+
+    /* Edge handles — one at the midpoint of every edge, dimmer/smaller
+       than a real vertex handle so the two are easy to tell apart at a
+       glance. Dragging one inserts a brand new point right there (see
+       its pointerdown handler in the <script>), turning a straight edge
+       into two — how a rectangle becomes an arbitrary polygon (an angled
+       or trapezoidal panel border, say) instead of staying a rectangle
+       forever. */
+    .edge-handle {
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        margin: -5px 0 0 -5px;
+        background: rgba(255, 82, 82, 0.55);
+        border: 1px solid rgba(42, 24, 0, 0.7);
+        border-radius: 50%;
+        cursor: copy;
+        touch-action: none;
+    }
 
     #panelSidebar {
         flex-shrink: 0;
@@ -370,6 +424,16 @@
         font-size: 12px;
         line-height: 1;
     }
+    #keepProportionsRow {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: #ccc;
+        margin-bottom: 8px;
+        cursor: pointer;
+    }
     /* Collapsed: just the header (with its toggle button, always
        reachable) stays visible — the list and Add/Detect actions hide,
        and the sidebar itself shrinks to a thin strip so #canvasArea's
@@ -389,6 +453,7 @@
         padding: 10px 6px;
     }
     #panelSidebar.collapsed #panelListHeader,
+    #panelSidebar.collapsed #keepProportionsRow,
     #panelSidebar.collapsed #panelList,
     #panelSidebar.collapsed #sidebarActions {
         display: none;
@@ -579,6 +644,10 @@
             <h2 id="panelListHeader">Panels</h2>
             <button id="panelSidebarToggle" class="small secondary" title="Collapse panel list">&#8250;</button>
         </div>
+        <label id="keepProportionsRow" title="When dragging a corner/point handle, scale the whole panel proportionally instead of reshaping just that point — same as holding Shift while dragging">
+            <input type="checkbox" id="keepProportionsCheckbox">
+            Keep proportions when dragging
+        </label>
         <ol id="panelList"></ol>
         <div id="sidebarActions">
             <button id="addPanelBtn">+ Add Panel</button>
@@ -596,7 +665,10 @@
 // ============================================================================
 // STATE
 // ============================================================================
-let pages = [];              // [{ name, getBlob, rects, naturalWidth, naturalHeight, blobUrl }]
+let pages = [];              // [{ name, getBlob, panels, naturalWidth, naturalHeight, blobUrl }]
+                              // — each panel is { points: [{x,y}, ...] }, >= 3 points, in the
+                              // page's own full-resolution pixel space; a plain rectangle is
+                              // just the 4-point case (see boxToPolygon() below).
 let acbfFramesByName = new Map();
 let currentPageIndex = 0;
 let currentImage = null;     // the decoded <img> for the page currently drawn
@@ -604,6 +676,7 @@ let mangaMode = false;
 let selectedPanelIndex = -1;
 let dragState = null;
 let listDragState = null;
+let keepProportions = false; // the checkbox's state — Shift while dragging also triggers this, see onDragMove()
 
 const EDITOR_ZOOM_MIN = 0.5;
 const EDITOR_ZOOM_MAX = 3;
@@ -631,6 +704,7 @@ const overlayContainer = document.getElementById("overlayContainer");
 const panelSidebar = document.getElementById("panelSidebar");
 const panelSidebarToggle = document.getElementById("panelSidebarToggle");
 const panelListHeader = document.getElementById("panelListHeader");
+const keepProportionsCheckbox = document.getElementById("keepProportionsCheckbox");
 const panelList = document.getElementById("panelList");
 const addPanelBtn = document.getElementById("addPanelBtn");
 const detectBtn = document.getElementById("detectBtn");
@@ -654,6 +728,10 @@ logCloseBtn.addEventListener("click", () => {
 
 mangaModeCheckbox.addEventListener("change", () => {
     mangaMode = mangaModeCheckbox.checked;
+});
+
+keepProportionsCheckbox.addEventListener("change", () => {
+    keepProportions = keepProportionsCheckbox.checked;
 });
 
 // ============================================================================
@@ -733,7 +811,7 @@ fileInput.addEventListener("change", async () => {
         pages = extractedPages.map(p => ({
             name: p.name,
             getBlob: p.getBlob,
-            rects: null,          // null = not yet drafted; filled in on first visit
+            panels: null,          // null = not yet drafted; filled in on first visit
             naturalWidth: 0,
             naturalHeight: 0,
             blobUrl: null
@@ -791,8 +869,35 @@ function refreshThumbActiveState() {
     thumbSidebar.querySelectorAll(".thumb").forEach(div => {
         const i = Number(div.dataset.index);
         div.classList.toggle("active", i === currentPageIndex);
-        div.classList.toggle("has-panels", !!(pages[i].rects && pages[i].rects.length > 0));
+        div.classList.toggle("has-panels", !!(pages[i].panels && pages[i].panels.length > 0));
     });
+}
+
+// A plain axis-aligned box (as ML detection or an ACBF bounding box
+// produces) expressed as its 4-corner polygon — the shape every panel
+// starts as, whether hand-added or auto-detected, before any vertex/edge
+// handle dragging turns it into something less rectangular.
+function boxToPolygon(box) {
+    return {
+        points: [
+            { x: box.x, y: box.y },
+            { x: box.x + box.width, y: box.y },
+            { x: box.x + box.width, y: box.y + box.height },
+            { x: box.x, y: box.y + box.height }
+        ]
+    };
+}
+
+// The axis-aligned bounding box of an arbitrary point list — used to
+// clamp a whole-panel "move" drag so the polygon's outer extent stays on
+// the page, the same way a single vertex's own drag is clamped to
+// [0, naturalWidth]/[0, naturalHeight].
+function polygonBounds(points) {
+    const xs = points.map(p => p.x);
+    const ys = points.map(p => p.y);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y };
 }
 
 // ============================================================================
@@ -820,20 +925,24 @@ async function loadPageImage(page) {
 }
 
 async function draftPanelsIfNeeded(page) {
-    if (page.rects !== null) return;
+    if (page.panels !== null) return;
 
-    const acbfRects = acbfFramesByName.get(baseName(page.name));
-    if (acbfRects && acbfRects.length > 0) {
-        page.rects = acbfRects.map(r => ({ ...r }));
+    const acbfFrames = acbfFramesByName.get(baseName(page.name));
+    if (acbfFrames && acbfFrames.length > 0) {
+        // Use the ACBF file's own exact polygon, not just its bounding
+        // box — if it (or an earlier export from this same editor)
+        // already had a hand-shaped, non-rectangular panel border, this
+        // preserves it instead of flattening it back to a rectangle.
+        page.panels = acbfFrames.map(frame => ({ points: frame.points.map(p => ({ ...p })) }));
         return;
     }
 
     try {
         const rows = await PanelDetection.detectPanels(editorCanvas);
-        page.rects = flattenPanelRows(rows).map(r => ({ ...r }));
+        page.panels = flattenPanelRows(rows).map(boxToPolygon);
     } catch (err) {
         writeLog("Automatic detection failed (" + err.message + ") — starting with a blank page instead.");
-        page.rects = [];
+        page.panels = [];
     }
 }
 
@@ -854,7 +963,7 @@ async function showPage(index) {
     editorCanvas.getContext("2d").drawImage(currentImage, 0, 0);
     applyEditorZoom();
 
-    if (page.rects === null) {
+    if (page.panels === null) {
         status.textContent = "Detecting panels...";
         await draftPanelsIfNeeded(page);
     }
@@ -869,60 +978,156 @@ prevPageBtn.addEventListener("click", () => showPage(currentPageIndex - 1));
 nextPageBtn.addEventListener("click", () => showPage(currentPageIndex + 1));
 
 // ============================================================================
-// OVERLAY RENDERING + DRAG/RESIZE EDITING
-// Boxes are positioned with percentages relative to #canvasWrap, which is
-// sized exactly to the canvas's own rendered box (a plain block-level
-// child) — so the overlay always lines up with the image regardless of
-// how big the canvas is drawn on screen, with no manual resize handling.
+// OVERLAY RENDERING + DRAG EDITING
+// Each panel is drawn as an SVG <polygon> whose viewBox is the page's own
+// natural pixel size (see below), so its "points" — already stored in
+// that pixel space — need no separate percentage conversion; the browser
+// scales the whole <svg> (and so every polygon in it) to match however
+// big #canvasWrap actually renders, the same "no manual resize handling"
+// property the old CSS-percentage boxes had.
+//
+// Every panel's outline is always visible/clickable (so you can select
+// any of them), but the per-vertex and per-edge handles below are only
+// rendered for the SELECTED panel — with several panels on one page,
+// showing every panel's full handle set at once would bury the artwork
+// itself in dots.
 // ============================================================================
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function pctX(x, page) { return (x / page.naturalWidth * 100) + "%"; }
+function pctY(y, page) { return (y / page.naturalHeight * 100) + "%"; }
+
 function renderOverlay() {
     overlayContainer.innerHTML = "";
     const page = pages[currentPageIndex];
-    (page.rects || []).forEach((rect, i) => {
-        const box = document.createElement("div");
-        box.className = "panel-box" + (i === selectedPanelIndex ? " selected" : "");
-        box.style.left = (rect.x / page.naturalWidth * 100) + "%";
-        box.style.top = (rect.y / page.naturalHeight * 100) + "%";
-        box.style.width = (rect.width / page.naturalWidth * 100) + "%";
-        box.style.height = (rect.height / page.naturalHeight * 100) + "%";
+    const panels = page.panels || [];
+    if (panels.length === 0) return;
 
-        const numLabel = document.createElement("div");
-        numLabel.className = "panel-num";
-        numLabel.textContent = String(i + 1);
-        box.appendChild(numLabel);
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("viewBox", `0 0 ${page.naturalWidth} ${page.naturalHeight}`);
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("class", "panel-svg");
 
-        const handle = document.createElement("div");
-        handle.className = "resize-handle";
-        box.appendChild(handle);
-
-        box.addEventListener("pointerdown", (e) => {
+    panels.forEach((panel, i) => {
+        const poly = document.createElementNS(SVG_NS, "polygon");
+        poly.setAttribute("points", panel.points.map(p => p.x + "," + p.y).join(" "));
+        poly.setAttribute("class", "panel-polygon" + (i === selectedPanelIndex ? " selected" : ""));
+        poly.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
             selectedPanelIndex = i;
             renderOverlay();
             renderPanelList();
             startDrag(e, i, "move");
         });
-        handle.addEventListener("pointerdown", (e) => {
-            e.stopPropagation();
-            selectedPanelIndex = i;
-            renderOverlay();
-            renderPanelList();
-            startDrag(e, i, "resize");
+        svg.appendChild(poly);
+    });
+    overlayContainer.appendChild(svg);
+
+    panels.forEach((panel, i) => {
+        const numLabel = document.createElement("div");
+        numLabel.className = "panel-num" + (i === selectedPanelIndex ? " selected" : "");
+        numLabel.textContent = String(i + 1);
+        numLabel.style.left = pctX(panel.points[0].x, page);
+        numLabel.style.top = pctY(panel.points[0].y, page);
+        overlayContainer.appendChild(numLabel);
+
+        if (i !== selectedPanelIndex) return; // handles only for the selected panel — see comment above
+
+        // Edge handles first (so real vertex handles paint on top at
+        // nearby positions): one per edge, at its midpoint. Dragging one
+        // inserts a brand new point there and immediately continues as a
+        // normal vertex drag, so pulling it away from the midpoint
+        // reshapes the panel in one motion — releasing without moving
+        // just leaves a new point sitting at the midpoint.
+        panel.points.forEach((pt, j) => {
+            const next = panel.points[(j + 1) % panel.points.length];
+            const midX = (pt.x + next.x) / 2;
+            const midY = (pt.y + next.y) / 2;
+            const edgeHandle = document.createElement("div");
+            edgeHandle.className = "edge-handle";
+            edgeHandle.title = "Drag to add a point on this edge";
+            edgeHandle.style.left = pctX(midX, page);
+            edgeHandle.style.top = pctY(midY, page);
+            edgeHandle.addEventListener("pointerdown", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const insertAt = j + 1;
+                panel.points.splice(insertAt, 0, { x: midX, y: midY });
+                renderOverlay();
+                startDrag(e, i, "vertex", insertAt);
+            });
+            overlayContainer.appendChild(edgeHandle);
         });
 
-        overlayContainer.appendChild(box);
+        // Vertex handles: every corner, not just one fixed corner —
+        // dragging any of them reshapes that point alone (hold Shift
+        // while dragging to scale the whole panel proportionally from
+        // the opposite corner instead — see onDragMove()). Double-click
+        // removes it (as long as the polygon would still have at least
+        // a triangle's worth of points left).
+        panel.points.forEach((pt, j) => {
+            const handle = document.createElement("div");
+            handle.className = "vertex-handle";
+            handle.title = (panel.points.length > 3
+                ? "Drag to move this point — double-click to remove it"
+                : "Drag to move this point") + " — hold Shift (or check \"Keep proportions\") to scale the whole panel instead";
+            handle.style.left = pctX(pt.x, page);
+            handle.style.top = pctY(pt.y, page);
+            handle.addEventListener("pointerdown", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                startDrag(e, i, "vertex", j);
+            });
+            handle.addEventListener("dblclick", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (panel.points.length > 3) {
+                    panel.points.splice(j, 1);
+                    renderOverlay();
+                    refreshThumbActiveState();
+                }
+            });
+            overlayContainer.appendChild(handle);
+        });
     });
 }
 
-function startDrag(e, index, type) {
+// type is "move" (drag the whole panel — from pointerdown on its
+// polygon) or "vertex" (drag a single point, identified by
+// vertexIndex — from pointerdown on a vertex or edge handle).
+function startDrag(e, panelIndex, type, vertexIndex) {
     e.preventDefault();
     const page = pages[currentPageIndex];
+    const panel = page.panels[panelIndex];
     const containerRect = canvasWrap.getBoundingClientRect();
+    const startPoints = panel.points.map(p => ({ ...p })); // snapshot to compute deltas against, not the live (mutated-in-place) array
+
+    // For a Shift-constrained vertex drag (see onDragMove()): the corner
+    // of the panel's own bounding box diagonally OPPOSITE the dragged
+    // point, computed once here rather than every move so it doesn't
+    // drift mid-drag. Picked by whichever edge the point starts closer
+    // to on each axis — the usual case is dragging an actual bounding-
+    // box corner, where this is just "the opposite corner"; for a point
+    // that isn't a bbox corner (an inserted edge point, say), it's the
+    // closest reasonable stand-in.
+    let anchor = null;
+    if (type === "vertex") {
+        const bounds = polygonBounds(startPoints);
+        const startPt = startPoints[vertexIndex];
+        anchor = {
+            x: (startPt.x - bounds.x <= bounds.x + bounds.width - startPt.x) ? bounds.x + bounds.width : bounds.x,
+            y: (startPt.y - bounds.y <= bounds.y + bounds.height - startPt.y) ? bounds.y + bounds.height : bounds.y
+        };
+    }
+
     dragState = {
         type,
-        index,
+        panelIndex,
+        vertexIndex,
+        anchor,
         startClientX: e.clientX,
         startClientY: e.clientY,
-        startRect: { ...page.rects[index] },
+        startPoints,
         scaleX: page.naturalWidth / containerRect.width,
         scaleY: page.naturalHeight / containerRect.height
     };
@@ -933,17 +1138,51 @@ function startDrag(e, index, type) {
 function onDragMove(e) {
     if (!dragState) return;
     const page = pages[currentPageIndex];
-    const rect = page.rects[dragState.index];
+    const panel = page.panels[dragState.panelIndex];
     const dx = (e.clientX - dragState.startClientX) * dragState.scaleX;
     const dy = (e.clientY - dragState.startClientY) * dragState.scaleY;
-    const MIN_SIZE = 10;
 
-    if (dragState.type === "move") {
-        rect.x = Math.max(0, Math.min(page.naturalWidth - rect.width, dragState.startRect.x + dx));
-        rect.y = Math.max(0, Math.min(page.naturalHeight - rect.height, dragState.startRect.y + dy));
+    if (dragState.type === "vertex" && (keepProportions || e.shiftKey)) {
+        // Constrain proportions — either the sidebar checkbox is on, or
+        // Shift is held for this one drag (the two are independent ways
+        // to ask for the same thing, so either is enough). Instead of
+        // moving just the dragged point, scale the WHOLE panel uniformly
+        // from the anchor corner (computed once in startDrag()) so every
+        // edge grows/shrinks by the same factor — the shape (rectangle
+        // or any other polygon) keeps its exact proportions instead of
+        // distorting. The single scale factor is driven by whichever
+        // axis the mouse is moving further along, so the drag still
+        // feels directly responsive rather than picking an arbitrary
+        // blend of X and Y.
+        const { anchor, startPoints, vertexIndex } = dragState;
+        const startPt = startPoints[vertexIndex];
+        const spanX = startPt.x - anchor.x;
+        const spanY = startPt.y - anchor.y;
+        const scaleFromX = spanX !== 0 ? (spanX + dx) / spanX : null;
+        const scaleFromY = spanY !== 0 ? (spanY + dy) / spanY : null;
+        let scale = Math.abs(dx) >= Math.abs(dy) ? scaleFromX : scaleFromY;
+        if (scale === null) scale = scaleFromX !== null ? scaleFromX : scaleFromY;
+        if (scale === null || !isFinite(scale)) scale = 1;
+
+        panel.points = startPoints.map(p => ({
+            x: Math.max(0, Math.min(page.naturalWidth, anchor.x + (p.x - anchor.x) * scale)),
+            y: Math.max(0, Math.min(page.naturalHeight, anchor.y + (p.y - anchor.y) * scale))
+        }));
+    } else if (dragState.type === "vertex") {
+        const startPt = dragState.startPoints[dragState.vertexIndex];
+        panel.points[dragState.vertexIndex] = {
+            x: Math.max(0, Math.min(page.naturalWidth, startPt.x + dx)),
+            y: Math.max(0, Math.min(page.naturalHeight, startPt.y + dy))
+        };
     } else {
-        rect.width = Math.max(MIN_SIZE, Math.min(page.naturalWidth - rect.x, dragState.startRect.width + dx));
-        rect.height = Math.max(MIN_SIZE, Math.min(page.naturalHeight - rect.y, dragState.startRect.height + dy));
+        // "move": translate every point together, clamped so the whole
+        // polygon's bounding box stays on the page (the same idea as a
+        // single vertex's own [0, naturalWidth]/[0, naturalHeight] clamp,
+        // just applied to the shape's outer extent instead of one point).
+        const bounds = polygonBounds(dragState.startPoints);
+        const clampedDx = Math.max(-bounds.x, Math.min(page.naturalWidth - bounds.x - bounds.width, dx));
+        const clampedDy = Math.max(-bounds.y, Math.min(page.naturalHeight - bounds.y - bounds.height, dy));
+        panel.points = dragState.startPoints.map(p => ({ x: p.x + clampedDx, y: p.y + clampedDy }));
     }
     renderOverlay();
 }
@@ -975,11 +1214,11 @@ panelSidebarToggle.addEventListener("click", () => {
 
 function renderPanelList() {
     const page = pages[currentPageIndex];
-    const rects = page.rects || [];
-    panelListHeader.textContent = "Panels (" + rects.length + ")";
+    const panels = page.panels || [];
+    panelListHeader.textContent = "Panels (" + panels.length + ")";
     panelList.innerHTML = "";
 
-    rects.forEach((rect, i) => {
+    panels.forEach((panel, i) => {
         const li = document.createElement("li");
         li.className = (i === selectedPanelIndex ? "selected" : "") + (listDragState && listDragState.index === i ? " dragging" : "");
 
@@ -1017,7 +1256,7 @@ function renderPanelList() {
         downBtn.className = "small secondary";
         downBtn.textContent = "↓";
         downBtn.title = "Move later in reading order";
-        downBtn.disabled = i === rects.length - 1;
+        downBtn.disabled = i === panels.length - 1;
         downBtn.addEventListener("click", (e) => { e.stopPropagation(); movePanel(i, 1); });
 
         const delBtn = document.createElement("button");
@@ -1041,11 +1280,11 @@ function renderPanelList() {
 // (which can jump straight to any position). Keeps selectedPanelIndex
 // pointing at whichever panel it was on before the move, even if that
 // panel wasn't the one being moved.
-function moveRectTo(fromIndex, toIndex) {
-    const rects = pages[currentPageIndex].rects;
+function movePanelTo(fromIndex, toIndex) {
+    const panels = pages[currentPageIndex].panels;
     if (fromIndex === toIndex) return;
-    const [moved] = rects.splice(fromIndex, 1);
-    rects.splice(toIndex, 0, moved);
+    const [moved] = panels.splice(fromIndex, 1);
+    panels.splice(toIndex, 0, moved);
 
     if (selectedPanelIndex === fromIndex) {
         selectedPanelIndex = toIndex;
@@ -1057,10 +1296,10 @@ function moveRectTo(fromIndex, toIndex) {
 }
 
 function movePanel(index, direction) {
-    const rects = pages[currentPageIndex].rects;
+    const panels = pages[currentPageIndex].panels;
     const target = index + direction;
-    if (target < 0 || target >= rects.length) return;
-    moveRectTo(index, target);
+    if (target < 0 || target >= panels.length) return;
+    movePanelTo(index, target);
     selectedPanelIndex = target;
     renderOverlay();
     renderPanelList();
@@ -1098,7 +1337,7 @@ function onListDragMove(e) {
     }
 
     if (hoverIndex !== listDragState.index) {
-        moveRectTo(listDragState.index, hoverIndex);
+        movePanelTo(listDragState.index, hoverIndex);
         listDragState.index = hoverIndex;
         renderOverlay();
         renderPanelList();
@@ -1114,8 +1353,8 @@ function onListDragEnd() {
 }
 
 function deletePanel(index) {
-    const rects = pages[currentPageIndex].rects;
-    rects.splice(index, 1);
+    const panels = pages[currentPageIndex].panels;
+    panels.splice(index, 1);
     selectedPanelIndex = -1;
     renderOverlay();
     renderPanelList();
@@ -1124,20 +1363,20 @@ function deletePanel(index) {
 
 addPanelBtn.addEventListener("click", () => {
     const page = pages[currentPageIndex];
-    if (!page.rects) page.rects = [];
+    if (!page.panels) page.panels = [];
     const w = page.naturalWidth * 0.4;
     const h = page.naturalHeight * 0.3;
-    const newRect = {
+    const newPanel = boxToPolygon({
         x: (page.naturalWidth - w) / 2,
         y: (page.naturalHeight - h) / 2,
         width: w,
         height: h
-    };
+    });
     // Right after whatever's selected, so it lands where you're actively
     // working instead of always at the end — with nothing selected,
     // there's no "current spot" to insert after, so it goes at the end.
-    const insertIndex = selectedPanelIndex === -1 ? page.rects.length : selectedPanelIndex + 1;
-    page.rects.splice(insertIndex, 0, newRect);
+    const insertIndex = selectedPanelIndex === -1 ? page.panels.length : selectedPanelIndex + 1;
+    page.panels.splice(insertIndex, 0, newPanel);
     selectedPanelIndex = insertIndex;
     renderOverlay();
     renderPanelList();
@@ -1146,14 +1385,14 @@ addPanelBtn.addEventListener("click", () => {
 
 detectBtn.addEventListener("click", async () => {
     const page = pages[currentPageIndex];
-    if (page.rects && page.rects.length > 0) {
-        const proceed = confirm("This replaces the " + page.rects.length + " panel(s) already on this page with a fresh automatic detection. Continue?");
+    if (page.panels && page.panels.length > 0) {
+        const proceed = confirm("This replaces the " + page.panels.length + " panel(s) already on this page with a fresh automatic detection. Continue?");
         if (!proceed) return;
     }
     status.textContent = "Detecting panels...";
     try {
         const rows = await PanelDetection.detectPanels(editorCanvas);
-        page.rects = flattenPanelRows(rows).map(r => ({ ...r }));
+        page.panels = flattenPanelRows(rows).map(boxToPolygon);
     } catch (err) {
         writeLog("Automatic detection failed: " + err.message);
         alert("Automatic detection failed:\n\n" + err.message);
@@ -1180,7 +1419,7 @@ function downloadBlob(blob, filename) {
 }
 
 function buildAcbfPagesData() {
-    return pages.map(p => ({ imageName: p.name, rects: p.rects || [] }));
+    return pages.map(p => ({ imageName: p.name, panels: p.panels || [] }));
 }
 
 exportAcbfBtn.addEventListener("click", () => {

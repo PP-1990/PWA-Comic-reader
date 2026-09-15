@@ -232,14 +232,16 @@ const PanelDetection = (() => {
     // name or a path like "images/012.jpg", and archive layouts vary, so
     // matching on the basename against the archive's own filenames is
     // more robust than requiring an exact path match) to its ordered list
-    // of panel rectangles. ACBF's <frame points="x1,y1 x2,y2 ..."> is a
-    // polygon, not a rectangle — this uses its bounding box, the same
-    // simplification the rest of Guided View already makes (a fixed,
-    // content-blind rectangle rather than an arbitrary shape). Returns an
-    // empty Map on any parse failure or if the file has no recognizable
-    // <page>/<frame> structure, which callers treat exactly like "no
-    // .acbf file at all" — this is a bonus data source, never a
-    // requirement.
+    // of panel frames. Each frame carries BOTH its bounding box (x, y,
+    // width, height — what Guided View's pan/zoom actually needs, since
+    // it always frames a rectangle regardless of the panel's real shape)
+    // AND its exact polygon `points` ([{x,y}, ...], in file order — what
+    // the ACBF editor needs to render/edit the real shape, e.g. an
+    // angled or trapezoidal panel border, not just its rectangle
+    // envelope). Returns an empty Map on any parse failure or if the file
+    // has no recognizable <page>/<frame> structure, which callers treat
+    // exactly like "no .acbf file at all" — this is a bonus data source,
+    // never a requirement.
     function parseAcbfFrames(xmlText) {
         const framesByImageName = new Map();
         let doc;
@@ -255,34 +257,39 @@ const PanelDetection = (() => {
             if (!href) continue;
             const baseName = href.split(/[\\/]/).pop().toLowerCase();
 
-            const rects = [];
+            const frames = [];
             for (const frameEl of pageEl.getElementsByTagName("frame")) {
-                const points = (frameEl.getAttribute("points") || "").trim().split(/\s+/)
+                const coords = (frameEl.getAttribute("points") || "").trim().split(/\s+/)
                     .map(pair => pair.split(",").map(Number));
-                if (points.length < 3 || points.some(p => p.length !== 2 || p.some(Number.isNaN))) continue;
-                const xs = points.map(p => p[0]);
-                const ys = points.map(p => p[1]);
-                rects.push({
+                if (coords.length < 3 || coords.some(p => p.length !== 2 || p.some(Number.isNaN))) continue;
+                const points = coords.map(([x, y]) => ({ x, y }));
+                const xs = coords.map(p => p[0]);
+                const ys = coords.map(p => p[1]);
+                frames.push({
                     x: Math.min(...xs),
                     y: Math.min(...ys),
                     width: Math.max(...xs) - Math.min(...xs),
-                    height: Math.max(...ys) - Math.min(...ys)
+                    height: Math.max(...ys) - Math.min(...ys),
+                    points
                 });
             }
-            if (rects.length > 0) framesByImageName.set(baseName, rects);
+            if (frames.length > 0) framesByImageName.set(baseName, frames);
         }
         return framesByImageName;
     }
 
-    // Serializes page-by-page panel rectangles into an ACBF XML document —
+    // Serializes page-by-page panel polygons into an ACBF XML document —
     // the mirror image of parseAcbfFrames() above. `pages` is an array of
-    // { imageName, rects } in reading order already (this doesn't reorder
-    // or otherwise second-guess what it's given — the caller, e.g. the
-    // ACBF editor, owns reading order). Produces a minimal but real ACBF
-    // document (the <meta-data> block ACBF requires, filled in from
-    // `bookTitle`) rather than just the <body> this app's own reader
-    // actually reads, so exported files are usable by other ACBF-aware
-    // tools too, not just this one.
+    // { imageName, panels } in reading order already (this doesn't
+    // reorder or otherwise second-guess what it's given — the caller,
+    // e.g. the ACBF editor, owns reading order), where each panel is
+    // { points: [{x,y}, ...] } — at least 3 points, in the page's own
+    // full-resolution pixel coordinates; a plain rectangle is just the
+    // 4-point case. Produces a minimal but real ACBF document (the
+    // <meta-data> block ACBF requires, filled in from `bookTitle`) rather
+    // than just the <body> this app's own reader actually reads, so
+    // exported files are usable by other ACBF-aware tools too, not just
+    // this one.
     function buildAcbfXml(pages, bookTitle) {
         const escapeXml = (s) => String(s).replace(/[&<>"]/g, ch => (
             { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]
@@ -291,10 +298,11 @@ const PanelDetection = (() => {
         const coverHref = pages[0] ? escapeXml(pages[0].imageName) : "";
 
         const pagesXml = pages.map(page => {
-            const framesXml = page.rects.map(r => {
-                const x1 = Math.round(r.x), y1 = Math.round(r.y);
-                const x2 = Math.round(r.x + r.width), y2 = Math.round(r.y + r.height);
-                return `      <frame points="${x1},${y1} ${x2},${y1} ${x2},${y2} ${x1},${y2}"/>`;
+            const framesXml = page.panels.map(panel => {
+                const pointsAttr = panel.points
+                    .map(p => Math.round(p.x) + "," + Math.round(p.y))
+                    .join(" ");
+                return `      <frame points="${pointsAttr}"/>`;
             }).join("\n");
             return `    <page>\n      <image href="${escapeXml(page.imageName)}"/>\n${framesXml}\n    </page>`;
         }).join("\n");
