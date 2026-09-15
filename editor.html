@@ -22,20 +22,25 @@
       archive (if it has one), or from the same on-device panel-detection
       model the reader uses (see panel-detection.js). Either way, that's
       a DRAFT: check it, don't assume it's right.
-   3. Every panel is really a polygon (a rectangle is just its simplest,
-      4-point case) — drag a corner's handle to reshape that point alone
-      (hold Shift while dragging, or check "Keep proportions" in the
-      panel list to make it the default, to scale the whole panel
-      proportionally instead, from the opposite corner), or drag the
-      smaller dot at an edge's midpoint to add a whole new point there,
-      turning a straight edge into two (an angled or trapezoidal panel
-      border, say). Double-click a corner to remove it again. Use
-      "+ Add Panel" for anything the draft missed entirely, delete
+   3. By default a selected panel gets normal resize handles — 4 corners
+      (drag to resize both directions; hold Shift to keep proportions)
+      and 4 edge midpoints (drag to resize just that one direction) —
+      the same as resizing a box in most other software, regardless of
+      whether the panel is actually a plain rectangle or (see next) a
+      more complex shape.
+   4. Every panel is really a polygon underneath (a rectangle is just its
+      simplest, 4-point case). Check "Edit as polygon" in the panel list
+      to switch the selected panel's handles from the normal box-resize
+      ones above to one handle per actual point instead — drag a corner
+      to reshape that point alone, or drag the smaller dot at an edge's
+      midpoint to add a whole new point there, turning a straight edge
+      into two (an angled or trapezoidal panel border, say). Double-click
+      a point to remove it again.
+   5. Use "+ Add Panel" for anything the draft missed entirely, delete
       panels that shouldn't be there, and reorder the panel list on the
-      right to fix reading
-      order (the panel LIST order is what gets written out as ACBF's
-      reading order).
-   4. Export either a standalone .acbf file, or a full repackaged .cbz with
+      right to fix reading order (the panel LIST order is what gets
+      written out as ACBF's reading order).
+   6. Export either a standalone .acbf file, or a full repackaged .cbz with
       that .acbf bundled inside it, ready to open in the reader.
 
  SHARED CODE: this page loads the exact same panel-detection.js and
@@ -389,6 +394,27 @@
         touch-action: none;
     }
 
+    /* Normal-mode resize handles (polygon editing OFF, the default) —
+       small squares, the classic "resize handle" look, as opposed to
+       polygon mode's round dots above, so it's visually obvious which
+       mode is active. Positioned at the selected panel's bounding-box
+       corners and edge midpoints, not its actual points (see
+       renderOverlay()/onDragMove() — dragging one stretches every point
+       proportionally into the new box, so a plain rectangle just resizes
+       normally, and it still works sensibly on a shape that's already a
+       more complex polygon). cursor is set per-handle in JS
+       (nwse-resize/nesw-resize for corners, ns-resize/ew-resize for
+       edges) to match whichever direction that handle actually resizes. */
+    .bbox-handle {
+        position: absolute;
+        width: 12px;
+        height: 12px;
+        margin: -6px 0 0 -6px;
+        background: #ffd54f;
+        border: 1px solid #2a1800;
+        touch-action: none;
+    }
+
     #panelSidebar {
         flex-shrink: 0;
         width: 220px;
@@ -424,7 +450,7 @@
         font-size: 12px;
         line-height: 1;
     }
-    #keepProportionsRow {
+    #polygonEditRow {
         flex-shrink: 0;
         display: flex;
         align-items: center;
@@ -453,7 +479,7 @@
         padding: 10px 6px;
     }
     #panelSidebar.collapsed #panelListHeader,
-    #panelSidebar.collapsed #keepProportionsRow,
+    #panelSidebar.collapsed #polygonEditRow,
     #panelSidebar.collapsed #panelList,
     #panelSidebar.collapsed #sidebarActions {
         display: none;
@@ -644,9 +670,9 @@
             <h2 id="panelListHeader">Panels</h2>
             <button id="panelSidebarToggle" class="small secondary" title="Collapse panel list">&#8250;</button>
         </div>
-        <label id="keepProportionsRow" title="When dragging a corner/point handle, scale the whole panel proportionally instead of reshaping just that point — same as holding Shift while dragging">
-            <input type="checkbox" id="keepProportionsCheckbox">
-            Keep proportions when dragging
+        <label id="polygonEditRow" title="Switch the selected panel's handles from normal box-resize corners/edges to one handle per actual point, so it can become any shape, not just a rectangle">
+            <input type="checkbox" id="polygonEditCheckbox">
+            Edit as polygon
         </label>
         <ol id="panelList"></ol>
         <div id="sidebarActions">
@@ -676,7 +702,7 @@ let mangaMode = false;
 let selectedPanelIndex = -1;
 let dragState = null;
 let listDragState = null;
-let keepProportions = false; // the checkbox's state — Shift while dragging also triggers this, see onDragMove()
+let polygonEditMode = false; // the checkbox's state — see renderOverlay()/onDragMove()
 
 const EDITOR_ZOOM_MIN = 0.5;
 const EDITOR_ZOOM_MAX = 3;
@@ -704,7 +730,7 @@ const overlayContainer = document.getElementById("overlayContainer");
 const panelSidebar = document.getElementById("panelSidebar");
 const panelSidebarToggle = document.getElementById("panelSidebarToggle");
 const panelListHeader = document.getElementById("panelListHeader");
-const keepProportionsCheckbox = document.getElementById("keepProportionsCheckbox");
+const polygonEditCheckbox = document.getElementById("polygonEditCheckbox");
 const panelList = document.getElementById("panelList");
 const addPanelBtn = document.getElementById("addPanelBtn");
 const detectBtn = document.getElementById("detectBtn");
@@ -730,8 +756,9 @@ mangaModeCheckbox.addEventListener("change", () => {
     mangaMode = mangaModeCheckbox.checked;
 });
 
-keepProportionsCheckbox.addEventListener("change", () => {
-    keepProportions = keepProportionsCheckbox.checked;
+polygonEditCheckbox.addEventListener("change", () => {
+    polygonEditMode = polygonEditCheckbox.checked;
+    renderOverlay(); // swap the selected panel's handles immediately, without needing to reselect it
 });
 
 // ============================================================================
@@ -1033,6 +1060,11 @@ function renderOverlay() {
 
         if (i !== selectedPanelIndex) return; // handles only for the selected panel — see comment above
 
+        if (!polygonEditMode) {
+            renderBboxHandles(panel, i, page);
+            return;
+        }
+
         // Edge handles first (so real vertex handles paint on top at
         // nearby positions): one per edge, at its midpoint. Dragging one
         // inserts a brand new point there and immediately continues as a
@@ -1070,7 +1102,7 @@ function renderOverlay() {
             handle.className = "vertex-handle";
             handle.title = (panel.points.length > 3
                 ? "Drag to move this point — double-click to remove it"
-                : "Drag to move this point") + " — hold Shift (or check \"Keep proportions\") to scale the whole panel instead";
+                : "Drag to move this point") + " — hold Shift to scale the whole panel instead";
             handle.style.left = pctX(pt.x, page);
             handle.style.top = pctY(pt.y, page);
             handle.addEventListener("pointerdown", (e) => {
@@ -1092,10 +1124,48 @@ function renderOverlay() {
     });
 }
 
+// The default (polygon editing OFF) handle set: 4 corners + 4 edge
+// midpoints of the panel's own bounding box — the same resize handles
+// as most other software, regardless of whether the panel underneath is
+// actually a plain rectangle or (having been shaped in polygon mode at
+// some point) something more complex; see the "bbox" branch of
+// onDragMove() for how dragging one of these maps onto the panel's real
+// points either way.
+const BBOX_HANDLE_DEFS = [
+    { id: "nw", fx: 0, fy: 0, cursor: "nwse-resize" },
+    { id: "n", fx: 0.5, fy: 0, cursor: "ns-resize" },
+    { id: "ne", fx: 1, fy: 0, cursor: "nesw-resize" },
+    { id: "e", fx: 1, fy: 0.5, cursor: "ew-resize" },
+    { id: "se", fx: 1, fy: 1, cursor: "nwse-resize" },
+    { id: "s", fx: 0.5, fy: 1, cursor: "ns-resize" },
+    { id: "sw", fx: 0, fy: 1, cursor: "nesw-resize" },
+    { id: "w", fx: 0, fy: 0.5, cursor: "ew-resize" }
+];
+
+function renderBboxHandles(panel, panelIndex, page) {
+    const bounds = polygonBounds(panel.points);
+    BBOX_HANDLE_DEFS.forEach(def => {
+        const handle = document.createElement("div");
+        handle.className = "bbox-handle";
+        handle.style.cursor = def.cursor;
+        handle.style.left = pctX(bounds.x + def.fx * bounds.width, page);
+        handle.style.top = pctY(bounds.y + def.fy * bounds.height, page);
+        handle.title = def.id.length === 2 ? "Drag to resize — hold Shift to keep proportions" : "Drag to resize";
+        handle.addEventListener("pointerdown", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            startDrag(e, panelIndex, "bbox", def.id);
+        });
+        overlayContainer.appendChild(handle);
+    });
+}
+
 // type is "move" (drag the whole panel — from pointerdown on its
-// polygon) or "vertex" (drag a single point, identified by
-// vertexIndex — from pointerdown on a vertex or edge handle).
-function startDrag(e, panelIndex, type, vertexIndex) {
+// polygon), "vertex" (polygon mode: drag a single point, identified by
+// handleId as a numeric index — from pointerdown on a vertex or edge
+// handle), or "bbox" (normal mode: drag one of the 8 bounding-box
+// handles, identified by handleId as one of BBOX_HANDLE_DEFS's ids).
+function startDrag(e, panelIndex, type, handleId) {
     e.preventDefault();
     const page = pages[currentPageIndex];
     const panel = page.panels[panelIndex];
@@ -1111,20 +1181,24 @@ function startDrag(e, panelIndex, type, vertexIndex) {
     // that isn't a bbox corner (an inserted edge point, say), it's the
     // closest reasonable stand-in.
     let anchor = null;
+    let bboxStart = null;
     if (type === "vertex") {
         const bounds = polygonBounds(startPoints);
-        const startPt = startPoints[vertexIndex];
+        const startPt = startPoints[handleId];
         anchor = {
             x: (startPt.x - bounds.x <= bounds.x + bounds.width - startPt.x) ? bounds.x + bounds.width : bounds.x,
             y: (startPt.y - bounds.y <= bounds.y + bounds.height - startPt.y) ? bounds.y + bounds.height : bounds.y
         };
+    } else if (type === "bbox") {
+        bboxStart = polygonBounds(startPoints);
     }
 
     dragState = {
         type,
         panelIndex,
-        vertexIndex,
+        handleId,
         anchor,
+        bboxStart,
         startClientX: e.clientX,
         startClientY: e.clientY,
         startPoints,
@@ -1135,6 +1209,8 @@ function startDrag(e, panelIndex, type, vertexIndex) {
     document.addEventListener("pointerup", onDragEnd);
 }
 
+const MIN_PANEL_SIZE = 10; // natural px — the smallest a panel's bounding box is allowed to shrink to, either drag type
+
 function onDragMove(e) {
     if (!dragState) return;
     const page = pages[currentPageIndex];
@@ -1142,10 +1218,8 @@ function onDragMove(e) {
     const dx = (e.clientX - dragState.startClientX) * dragState.scaleX;
     const dy = (e.clientY - dragState.startClientY) * dragState.scaleY;
 
-    if (dragState.type === "vertex" && (keepProportions || e.shiftKey)) {
-        // Constrain proportions — either the sidebar checkbox is on, or
-        // Shift is held for this one drag (the two are independent ways
-        // to ask for the same thing, so either is enough). Instead of
+    if (dragState.type === "vertex" && e.shiftKey) {
+        // Shift-constrained vertex drag (polygon mode only): instead of
         // moving just the dragged point, scale the WHOLE panel uniformly
         // from the anchor corner (computed once in startDrag()) so every
         // edge grows/shrinks by the same factor — the shape (rectangle
@@ -1154,8 +1228,8 @@ function onDragMove(e) {
         // axis the mouse is moving further along, so the drag still
         // feels directly responsive rather than picking an arbitrary
         // blend of X and Y.
-        const { anchor, startPoints, vertexIndex } = dragState;
-        const startPt = startPoints[vertexIndex];
+        const { anchor, startPoints, handleId } = dragState;
+        const startPt = startPoints[handleId];
         const spanX = startPt.x - anchor.x;
         const spanY = startPt.y - anchor.y;
         const scaleFromX = spanX !== 0 ? (spanX + dx) / spanX : null;
@@ -1169,11 +1243,66 @@ function onDragMove(e) {
             y: Math.max(0, Math.min(page.naturalHeight, anchor.y + (p.y - anchor.y) * scale))
         }));
     } else if (dragState.type === "vertex") {
-        const startPt = dragState.startPoints[dragState.vertexIndex];
-        panel.points[dragState.vertexIndex] = {
+        const startPt = dragState.startPoints[dragState.handleId];
+        panel.points[dragState.handleId] = {
             x: Math.max(0, Math.min(page.naturalWidth, startPt.x + dx)),
             y: Math.max(0, Math.min(page.naturalHeight, startPt.y + dy))
         };
+    } else if (dragState.type === "bbox") {
+        // Normal-mode resize: move whichever edges of the bounding box
+        // the dragged handle owns (a corner owns two, an edge midpoint
+        // owns one — see BBOX_HANDLE_DEFS's ids), each clamped to the
+        // page and to not cross past the OPPOSITE, fixed edge closer
+        // than MIN_PANEL_SIZE. Shift on a corner handle additionally
+        // constrains the result to the original aspect ratio, same idea
+        // as the vertex case above but driven by the bbox's own
+        // width/height instead of one point's distance from an anchor.
+        const { bboxStart, handleId, startPoints } = dragState;
+        let left = bboxStart.x;
+        let top = bboxStart.y;
+        let right = bboxStart.x + bboxStart.width;
+        let bottom = bboxStart.y + bboxStart.height;
+
+        const movesLeft = handleId.includes("w");
+        const movesRight = handleId.includes("e");
+        const movesTop = handleId.includes("n");
+        const movesBottom = handleId.includes("s");
+
+        if (movesLeft) left = Math.min(right - MIN_PANEL_SIZE, left + dx);
+        if (movesRight) right = Math.max(left + MIN_PANEL_SIZE, right + dx);
+        if (movesTop) top = Math.min(bottom - MIN_PANEL_SIZE, top + dy);
+        if (movesBottom) bottom = Math.max(top + MIN_PANEL_SIZE, bottom + dy);
+
+        if (e.shiftKey && (movesLeft || movesRight) && (movesTop || movesBottom)) {
+            const scaleW = (right - left) / bboxStart.width;
+            const scaleH = (bottom - top) / bboxStart.height;
+            const scale = Math.abs(scaleW - 1) >= Math.abs(scaleH - 1) ? scaleW : scaleH;
+            const newW = bboxStart.width * scale;
+            const newH = bboxStart.height * scale;
+            if (movesLeft) left = right - newW; else right = left + newW;
+            if (movesTop) top = bottom - newH; else bottom = top + newH;
+        }
+
+        left = Math.max(0, Math.min(left, page.naturalWidth));
+        right = Math.max(0, Math.min(right, page.naturalWidth));
+        top = Math.max(0, Math.min(top, page.naturalHeight));
+        bottom = Math.max(0, Math.min(bottom, page.naturalHeight));
+        const newBounds = { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+
+        // Map every point from its relative position within the OLD
+        // bounding box to the same relative position within the NEW one
+        // — a plain rectangle's 4 points are exactly its bbox corners,
+        // so this is just a normal resize for the common case, and it
+        // still does something sensible (stretch proportionally to fit)
+        // for a panel that's already a more complex polygon.
+        panel.points = startPoints.map(p => {
+            const fx = bboxStart.width !== 0 ? (p.x - bboxStart.x) / bboxStart.width : 0;
+            const fy = bboxStart.height !== 0 ? (p.y - bboxStart.y) / bboxStart.height : 0;
+            return {
+                x: newBounds.x + fx * newBounds.width,
+                y: newBounds.y + fy * newBounds.height
+            };
+        });
     } else {
         // "move": translate every point together, clamped so the whole
         // polygon's bounding box stays on the page (the same idea as a
