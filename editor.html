@@ -509,6 +509,20 @@
     }
     #panelList li.selected { border-color: #ff5252; background: #2a1414; }
     #panelList li.dragging { opacity: 0.4; }
+
+    /* Marks where a dragged panel WOULD land if released right now — see
+       the DRAG-TO-REORDER section in the <script>, which deliberately
+       doesn't actually reorder (or renumber) anything until the drag is
+       released, only shows this line moving. */
+    #panelList li.drop-indicator {
+        height: 3px;
+        margin: 0 0 5px;
+        padding: 0;
+        background: #ffd54f;
+        border: none;
+        border-radius: 2px;
+        cursor: default;
+    }
     #panelList li .label { flex: 1; }
     #panelList li .btns { display: flex; gap: 2px; }
     #panelList li .drag-handle {
@@ -1348,8 +1362,16 @@ function renderPanelList() {
     panelList.innerHTML = "";
 
     panels.forEach((panel, i) => {
+        // The dragged item's future position, shown as a thin line
+        // rather than by actually reordering anything — see the
+        // DRAG-TO-REORDER section below for why nothing really moves
+        // (renumbering included) until the drag is released.
+        if (listDragState && listDragState.hoverIndex === i) {
+            panelList.appendChild(createDropIndicator());
+        }
+
         const li = document.createElement("li");
-        li.className = (i === selectedPanelIndex ? "selected" : "") + (listDragState && listDragState.index === i ? " dragging" : "");
+        li.className = "panel-item" + (i === selectedPanelIndex ? " selected" : "") + (listDragState && listDragState.index === i ? " dragging" : "");
 
         const handle = document.createElement("span");
         handle.className = "drag-handle";
@@ -1401,6 +1423,16 @@ function renderPanelList() {
         li.appendChild(btns);
         panelList.appendChild(li);
     });
+
+    if (listDragState && listDragState.hoverIndex === panels.length) {
+        panelList.appendChild(createDropIndicator());
+    }
+}
+
+function createDropIndicator() {
+    const indicator = document.createElement("li");
+    indicator.className = "drop-indicator";
+    return indicator;
 }
 
 // Moves the panel at `fromIndex` to `toIndex` in the reading-order list,
@@ -1438,25 +1470,35 @@ function movePanel(index, direction) {
 // DRAG-TO-REORDER: press and hold a panel's grip handle (see renderPanelList()
 // above) and drag it up/down the list to jump it straight to a new reading-
 // order position, instead of clicking Up/Down one step at a time.
+//
+// The actual reorder (and so every panel's number, both in this list and
+// on the canvas overlay) is deliberately NOT applied while the drag is
+// still in progress — only a drop-indicator line shows where it would
+// land. Renumbering live, mid-drag, meant every panel's number kept
+// jumping around while you were still deciding where to drop it, which
+// read as more churn than help; committing the move once, on release,
+// keeps the numbers stable until there's an actual new order to show.
 // ----------------------------------------------------------------------
 function startListDrag(e, index) {
-    listDragState = { index };
+    listDragState = { index, hoverIndex: index };
     renderPanelList();
     document.addEventListener("pointermove", onListDragMove);
     document.addEventListener("pointerup", onListDragEnd);
 }
 
 // Figures out which slot the pointer is currently hovering over (by
-// comparing its Y position against each list item's own vertical
-// midpoint) and, if that's different from where the dragged panel
-// currently sits, moves it there right away — so the list visibly
-// reorders live as you drag, the same way most drag-and-drop lists work.
+// comparing its Y position against each real panel item's own vertical
+// midpoint — panelList.children also includes the drop-indicator once
+// one's shown, so this specifically queries li.panel-item to skip it)
+// and, if that's different from the current indicator position, moves
+// the indicator there. Nothing about the actual panel order changes
+// here — see the section comment above.
 function onListDragMove(e) {
     if (!listDragState) return;
-    const items = [...panelList.children];
+    const items = [...panelList.querySelectorAll("li.panel-item")];
     if (items.length === 0) return;
 
-    let hoverIndex = items.length - 1;
+    let hoverIndex = items.length;
     for (let i = 0; i < items.length; i++) {
         const rect = items[i].getBoundingClientRect();
         if (e.clientY < rect.top + rect.height / 2) {
@@ -1465,18 +1507,36 @@ function onListDragMove(e) {
         }
     }
 
-    if (hoverIndex !== listDragState.index) {
-        movePanelTo(listDragState.index, hoverIndex);
-        listDragState.index = hoverIndex;
-        renderOverlay();
+    if (hoverIndex !== listDragState.hoverIndex) {
+        listDragState.hoverIndex = hoverIndex;
         renderPanelList();
     }
 }
 
+// Release: NOW the reorder actually happens (a no-op if the pointer
+// never crossed into a different slot), and the list/canvas both
+// re-render with the panels' final, real numbers.
+//
+// hoverIndex was read off the list in its ORIGINAL order (the dragged
+// panel never actually moved out of its own slot mid-drag — see above),
+// so it means "insert before whatever real panel currently sits at this
+// index". movePanelTo() instead expects a destination index in the
+// ARRAY AFTER the dragged panel has already been removed — when
+// dragging downward past its own start, removing it first shifts
+// everything after that point back by one, so the target needs the same
+// -1 correction to still land in the gap the indicator was actually
+// showing. Dragging upward needs no correction: nothing before the
+// target shifts.
 function onListDragEnd() {
+    if (listDragState) {
+        const { index, hoverIndex } = listDragState;
+        const targetIndex = hoverIndex > index ? hoverIndex - 1 : hoverIndex;
+        movePanelTo(index, targetIndex);
+    }
     listDragState = null;
     document.removeEventListener("pointermove", onListDragMove);
     document.removeEventListener("pointerup", onListDragEnd);
+    renderOverlay();
     renderPanelList();
     refreshThumbActiveState();
 }
