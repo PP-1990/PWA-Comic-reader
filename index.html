@@ -458,29 +458,34 @@
         font-size: 14px;
     }
 
-    /* Cinematic mode's "spotlight". The wrap is positioned/sized in JS
-       (see updateCinematicMask()) to exactly cover #mainView, and clips
-       (overflow:hidden) so the inner window's box-shadow — a huge,
-       blur-free spread that paints everywhere OUTSIDE its own box —
-       can never bleed past the reading area into the sidebar/console/
-       top bar, regardless of how far the shadow's spread radius reaches.
-       z-index sits below the nav pills (150) so ‹ › and the page
-       indicator stay visible/usable on top of it, but above the page
-       content itself (which has no z-index of its own). pointer-events:
-       none throughout so manual pan/drag on the page underneath is
-       never blocked — box-shadow paint never participates in hit-
-       testing anyway, but this keeps that explicit rather than relying
-       on that detail. */
-    #cinematicMaskWrap {
-        position: fixed;
-        overflow: hidden;
-        pointer-events: none;
-        z-index: 140;
-    }
+    /* Cinematic mode's "spotlight" — everything on the page except the
+       current panel's own exact shape blacked out (an SVG <mask>, so it
+       follows the panel's real outline, not just a rectangle around it —
+       see updateCinematicMask() in the <script>). Positioned/sized once
+       per page load or resize (captureNaturalBox()) to exactly overlay
+       pageCanvas's own natural box, then given the EXACT SAME `transform`
+       pageCanvas gets on every guided-view move (applyGuidedTransform()) —
+       so it rides along with the page automatically, animated by the same
+       transition below, rather than needing its own screen-coordinate
+       recomputation on every pan/zoom/step. z-index sits below the nav
+       pills (150) so ‹ › and the page indicator stay visible/usable on
+       top of it, but above the page content itself (which has no z-index
+       of its own). pointer-events:none throughout so manual pan/drag on
+       the page underneath is never blocked. */
     #cinematicMask {
         position: absolute;
-        border-radius: 2px;
-        box-shadow: 0 0 0 9999px rgba(12, 12, 12, 0.96), 0 0 24px 2px rgba(255, 213, 79, 0.15);
+        transform-origin: 0 0;
+        pointer-events: none;
+        z-index: 140;
+        /* Matches .page-image's own transform transition exactly, so
+           same-page steps (which pan/zoom instead of fading — see
+           stepToPanel()) move the spotlight in lockstep with the page
+           itself instead of it snapping to the new panel ahead of the
+           image still animating toward it. Disabled the same way
+           pageCanvas's is (see showGuidedPanel()) for jumps that happen
+           behind the opaque page-crossing fade, which should snap
+           instantly rather than visibly animate under the fade. */
+        transition: transform 550ms cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     /* The "reading direction" prompt shown when turning Guided View on —
@@ -874,6 +879,28 @@
              canvas by loadPageIntoCanvas() in the <script> below. Starts
              hidden (nothing drawn) until the first page is ready. -->
         <canvas id="pageCanvas" class="page-image" hidden></canvas>
+        <!-- Cinematic mode's "spotlight": everything on the page except the
+             current panel's own exact shape (not just its bounding box —
+             see updateCinematicMask() in the <script>) blacked out. A
+             sibling of pageCanvas, kept positioned/sized to exactly cover
+             its NATURAL (untransformed) box (see captureNaturalBox()) and
+             given the exact same `transform` on every guided-view move
+             (see applyGuidedTransform()) — so instead of this needing its
+             own screen-coordinate math re-run on every pan/zoom/step, it
+             just rides along with pageCanvas automatically, animated by
+             the same CSS transition, and #mainView's own overflow:hidden
+             (already switched on for Guided View) clips it to the reading
+             area the exact same way it already clips pageCanvas itself. -->
+        <svg id="cinematicMask" hidden>
+            <defs>
+                <mask id="cinematicMaskDef">
+                    <rect id="cinematicMaskBg" x="0" y="0" width="0" height="0" fill="white"/>
+                    <polygon id="cinematicMaskHole" points="" fill="black"/>
+                </mask>
+            </defs>
+            <rect id="cinematicMaskFillRect" x="0" y="0" width="0" height="0" fill="rgba(12,12,12,0.96)" mask="url(#cinematicMaskDef)"/>
+            <polygon id="cinematicMaskGlow" points="" fill="none" stroke="#ffd54f" stroke-width="3" stroke-opacity="0.5" vector-effect="non-scaling-stroke"/>
+        </svg>
         <div id="zoomControls" hidden>
             <button id="guidedViewBtn" aria-label="Toggle Guided View" title="Guided View: scan the page at your chosen zoom">&#9638;</button>
             <button id="zoomOutBtn" aria-label="Zoom out">&#8722;</button>
@@ -896,19 +923,6 @@
          of the black fade so a first-time model load / slower device
          doesn't look like the app has frozen. -->
     <span id="guidedFadeStatus"></span>
-</div>
-
-<!-- Cinematic mode's "spotlight": a window exactly matching the current
-     panel's own on-screen box, everything outside it (but still within
-     the reading area — not the sidebar/console/top bar) blacked out —
-     see updateCinematicMask() in the <script>. Two nested elements: the
-     outer wrap is sized/positioned to exactly cover #mainView and clips
-     (overflow:hidden) so the inner window's masking effect can never
-     bleed past the reading area; the inner window itself is empty and
-     transparent — the masking is entirely the CSS box-shadow trick on
-     it, in the <style> above. -->
-<div id="cinematicMaskWrap" hidden>
-    <div id="cinematicMask"></div>
 </div>
 
 <!-- Guided View setup prompt: shown when turning Guided View ON, to ask
@@ -935,7 +949,7 @@
             </label>
             <label>
                 <input type="radio" name="transitionMode" id="transitionModeCinematicRadio" value="cinematic">
-                Cinematic (spotlight + fade)
+                Cinematic (spotlight + pan &amp; zoom)
             </label>
         </div>
         <div class="guidedSetupButtons">
@@ -970,8 +984,11 @@ const mangaModeCheckbox = document.getElementById("mangaModeCheckbox");
 const transitionModePanRadio = document.getElementById("transitionModePanRadio");
 const transitionModeFadeRadio = document.getElementById("transitionModeFadeRadio");
 const transitionModeCinematicRadio = document.getElementById("transitionModeCinematicRadio");
-const cinematicMaskWrap = document.getElementById("cinematicMaskWrap");
 const cinematicMask = document.getElementById("cinematicMask");
+const cinematicMaskBg = document.getElementById("cinematicMaskBg");
+const cinematicMaskHole = document.getElementById("cinematicMaskHole");
+const cinematicMaskFillRect = document.getElementById("cinematicMaskFillRect");
+const cinematicMaskGlow = document.getElementById("cinematicMaskGlow");
 const guidedSetupHint = document.getElementById("guidedSetupHint");
 const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
 const guidedSetupStartBtn = document.getElementById("guidedSetupStartBtn");
@@ -1160,9 +1177,12 @@ let guidedTransitionInProgress = false;
 //   "fade"      — a hard cut to black and back, via the same
 //                 fadeOut()/fadeIn() page-boundary crossings already use
 //                 — see stepToPanel() below.
-//   "cinematic" — the same fade cut as "fade", plus (while a panel is
-//                 showing) a spotlight mask hiding everything on the
-//                 page except that one panel — see updateCinematicMask().
+//   "cinematic" — the same smooth animated move as "pan", plus (while a
+//                 panel is showing) a spotlight mask hiding everything
+//                 on the page except that one panel, itself animating
+//                 right along with the pan/zoom — see
+//                 updateCinematicMask() and #cinematicMask's own
+//                 transition in the <style> above.
 // Crossing to a different page always fades regardless of this setting;
 // this only controls same-page steps, which otherwise never fade at all.
 let guidedTransitionMode = "pan";
@@ -1202,7 +1222,16 @@ let guidedTranslateY = 0;
 let guidedScale = 1;
 
 function applyGuidedTransform() {
-    pageCanvas.style.transform = `translate(${guidedTranslateX}px, ${guidedTranslateY}px) scale(${guidedScale})`;
+    const transform = `translate(${guidedTranslateX}px, ${guidedTranslateY}px) scale(${guidedScale})`;
+    pageCanvas.style.transform = transform;
+    // cinematicMask is kept positioned to exactly overlay pageCanvas's own
+    // natural box (see captureNaturalBox()) with the identical transform
+    // origin, so giving it this exact same transform — on every pan/zoom,
+    // panel step, AND manual drag, since they all funnel through here —
+    // is what keeps its spotlight glued to the page with zero separate
+    // per-move math of its own (see updateCinematicMask() for the part
+    // that doesn't come along for free this way: the mask's actual shape).
+    cinematicMask.style.transform = transform;
 }
 
 // Measures the canvas's natural (untransformed) on-screen box and caches
@@ -1226,6 +1255,18 @@ function captureNaturalBox() {
     pageCanvas.style.transform = previousTransform;
     void pageCanvas.offsetHeight;
     pageCanvas.style.transition = previousTransition;
+
+    // Keeps cinematicMask's base (untransformed) position/size exactly
+    // matching pageCanvas's own — see applyGuidedTransform() for why that
+    // means giving both the same `transform` afterward is enough to keep
+    // the mask glued to the page with no further per-move math. Position
+    // is expressed relative to #mainView (cinematicMask's own positioned
+    // ancestor), since cachedNaturalBox above is in viewport coordinates.
+    const mainViewBox = mainView.getBoundingClientRect();
+    cinematicMask.style.left = (cachedNaturalBox.left - mainViewBox.left) + "px";
+    cinematicMask.style.top = (cachedNaturalBox.top - mainViewBox.top) + "px";
+    cinematicMask.style.width = cachedNaturalBox.width + "px";
+    cinematicMask.style.height = cachedNaturalBox.height + "px";
 }
 
 const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a panel's edges aren't flush against the screen edge
@@ -1258,38 +1299,58 @@ function frameRect(rectX, rectY, rectWidth, rectHeight) {
     applyGuidedTransform();
 }
 
-// Positions/sizes the cinematic-mask wrap+window (see their own comment
-// in the <style> above) so the window exactly covers the given panel's
-// on-screen box — or hides the whole thing outside cinematic mode.
-// Reconstructs that box from frameRect()'s own just-applied transform
-// state (guidedScale/guidedTranslateX/Y) rather than recomputing the fit
-// independently, so the spotlight is always in perfect sync with
-// wherever the panel actually rendered: undoing the same transform math
-// frameRect() used, a page pixel (px, py) lands on screen at
-// naturalBox.left + guidedTranslateX + combinedScale * px (and the same
-// for Y), where combinedScale folds together the CSS transform's own
-// scale and naturalBox's already-existing CSS scaling of the canvas
-// (naturalBox.width / pageCanvas.width). The window's own left/top are
-// then re-expressed relative to the wrap's corner (not the viewport),
-// since the wrap is what actually clips it to the reading area.
+// The 4-corner rectangle a panel's own bounding box describes — the
+// fallback shape for a panel that carries no real polygon `points` (a
+// plain ML-detected box never does; only ACBF-authored/edited frames do
+// — see parseAcbfFrames() in panel-detection.js).
+function boxCorners(panel) {
+    return [
+        { x: panel.x, y: panel.y },
+        { x: panel.x + panel.width, y: panel.y },
+        { x: panel.x + panel.width, y: panel.y + panel.height },
+        { x: panel.x, y: panel.y + panel.height }
+    ];
+}
+
+// Shapes cinematicMask's "hole" to the given panel's own actual outline
+// (its real polygon points if it has any, else just its rectangle) — or
+// hides the whole mask outside cinematic mode. Position/scale are handled
+// entirely elsewhere (captureNaturalBox() + applyGuidedTransform(), see
+// their own comments) since the mask always exactly overlays pageCanvas
+// and shares its transform; all that's left here is the SHAPE, expressed
+// directly in the page's own full-resolution pixel space (pageCanvas's
+// width/height) — the same coordinate space panel points already use, so
+// they're usable as-is with no conversion.
+// Plain `element.hidden = bool` doesn't reliably work for an <svg> ROOT
+// element specifically — on SVGSVGElement, setting the IDL property
+// updates its OWN reflection but was observed NOT to actually clear the
+// underlying `hidden` content attribute, so the global [hidden]{display:
+// none!important} rule kept matching (and the mask staying invisible)
+// even once `.hidden` itself read back false. Setting the attribute
+// directly works reliably for every element type, SVG root included.
+function setElementHidden(el, isHidden) {
+    if (isHidden) el.setAttribute("hidden", "");
+    else el.removeAttribute("hidden");
+}
+
 function updateCinematicMask(panel) {
     if (!guidedViewEnabled || guidedTransitionMode !== "cinematic" || !panel) {
-        cinematicMaskWrap.hidden = true;
+        setElementHidden(cinematicMask, true);
         return;
     }
-    const mainViewBox = mainView.getBoundingClientRect();
-    cinematicMaskWrap.style.left = mainViewBox.left + "px";
-    cinematicMaskWrap.style.top = mainViewBox.top + "px";
-    cinematicMaskWrap.style.width = mainViewBox.width + "px";
-    cinematicMaskWrap.style.height = mainViewBox.height + "px";
 
-    const naturalBox = cachedNaturalBox || pageCanvas.getBoundingClientRect();
-    const combinedScale = guidedScale * (naturalBox.width / pageCanvas.width);
-    cinematicMask.style.left = (naturalBox.left + guidedTranslateX + combinedScale * panel.x - mainViewBox.left) + "px";
-    cinematicMask.style.top = (naturalBox.top + guidedTranslateY + combinedScale * panel.y - mainViewBox.top) + "px";
-    cinematicMask.style.width = (combinedScale * panel.width) + "px";
-    cinematicMask.style.height = (combinedScale * panel.height) + "px";
-    cinematicMaskWrap.hidden = false;
+    const points = (panel.points && panel.points.length >= 3) ? panel.points : boxCorners(panel);
+    const pointsAttr = points.map(p => p.x + "," + p.y).join(" ");
+    cinematicMaskHole.setAttribute("points", pointsAttr);
+    cinematicMaskGlow.setAttribute("points", pointsAttr);
+
+    cinematicMask.setAttribute("viewBox", `0 0 ${pageCanvas.width} ${pageCanvas.height}`);
+    cinematicMaskBg.setAttribute("width", pageCanvas.width);
+    cinematicMaskBg.setAttribute("height", pageCanvas.height);
+    cinematicMaskFillRect.setAttribute("width", pageCanvas.width);
+    cinematicMaskFillRect.setAttribute("height", pageCanvas.height);
+
+    setElementHidden(cinematicMask, false);
 }
 
 // Undoes frameRect()'s transform, back to the normal (CSS-driven,
@@ -1298,7 +1359,8 @@ function resetGuidedTransform() {
     pageCanvas.style.transform = "";
     pageCanvas.style.touchAction = "";
     mainView.style.overflow = "";
-    cinematicMaskWrap.hidden = true;
+    cinematicMask.style.transform = "";
+    setElementHidden(cinematicMask, true);
 }
 
 // ----------------------------------------------------------------------
@@ -1422,14 +1484,14 @@ async function ensurePanelsForPage(pageIndex) {
 // detected.
 //
 // Stepping between panels on the SAME page instead follows
-// guidedTransitionMode (see stepToPanel() below): "pan" (the original
-// behavior) relies purely on frameRect()'s smooth `transform` animation,
-// for a feel of one continuous camera move over the same artwork; "fade"
-// and "cinematic" both reuse this exact same fadeOut()/fadeIn() cut for
-// same-page steps too, for readers who'd rather each panel arrive as a
-// clean reveal — "cinematic" additionally keeps everything but the
-// current panel masked out for as long as it's showing, not just during
-// the cut itself (see updateCinematicMask()).
+// guidedTransitionMode (see stepToPanel() below): "pan" and "cinematic"
+// both rely purely on frameRect()'s smooth `transform` animation, for a
+// feel of one continuous camera move over the same artwork — cinematic
+// additionally keeps everything but the current panel masked out for as
+// long as it's showing (see updateCinematicMask()), the mask itself
+// animating right along with the move. Only "fade" instead reuses this
+// exact same fadeOut()/fadeIn() cut for same-page steps too, for readers
+// who'd rather each panel arrive as a clean reveal.
 // ----------------------------------------------------------------------
 const FADE_DURATION = 300; // ms — kept snappier than the pan/zoom transition, since this is a full blackout
 
@@ -1472,29 +1534,34 @@ function showGuidedPanel(index, instant) {
     const panel = currentPanelList[currentPanelIndex];
     if (instant) {
         const previousTransition = pageCanvas.style.transition;
+        const previousMaskTransition = cinematicMask.style.transition;
         pageCanvas.style.transition = "none";
+        cinematicMask.style.transition = "none";
         frameRect(panel.x, panel.y, panel.width, panel.height);
+        updateCinematicMask(panel);
         void pageCanvas.offsetHeight;
         pageCanvas.style.transition = previousTransition;
+        cinematicMask.style.transition = previousMaskTransition;
     } else {
         frameRect(panel.x, panel.y, panel.width, panel.height);
+        updateCinematicMask(panel);
     }
     prevBtn.disabled = currentIndex === 0 && currentPanelIndex === 0;
     nextBtn.disabled = currentIndex === pageUrls.length - 1 && currentPanelIndex === currentPanelList.length - 1;
-    updateCinematicMask(panel);
 }
 
 // Moves to a different panel on the CURRENT page (goToPage() below is the
 // equivalent for crossing to a different page) — the one thing goPrev()/
 // goNext()'s same-page branches actually call. Applies
-// guidedTransitionMode: "pan" is just showGuidedPanel()'s own default
-// animated move; "fade" and "cinematic" both instead cut to black, jump
-// instantly behind it (showGuidedPanel(index, true)), and fade back in,
-// guarded by the same guidedTransitionInProgress flag page crossings use
-// so a fast double-tap can't start a second fade before the first
-// finishes.
+// guidedTransitionMode: "pan" and "cinematic" both just use
+// showGuidedPanel()'s own default animated move (cinematic's spotlight
+// mask animates right along with it — see its own transition in the
+// <style> above); only "fade" instead cuts to black, jumps instantly
+// behind it (showGuidedPanel(index, true)), and fades back in, guarded
+// by the same guidedTransitionInProgress flag page crossings use so a
+// fast double-tap can't start a second fade before the first finishes.
 async function stepToPanel(index) {
-    if (guidedTransitionMode === "pan") {
+    if (guidedTransitionMode !== "fade") {
         showGuidedPanel(index);
         return;
     }
