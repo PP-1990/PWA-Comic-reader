@@ -1,4 +1,4 @@
-# Comic Reader
+# Comicaa
 
 A comic book reader that lives entirely in your browser. Open a `.cbz` or `.cbr` file and read it — no account, no upload, no server involved at any point. Your comics never leave your device.
 
@@ -11,7 +11,7 @@ A comic book reader that lives entirely in your browser. Open a `.cbz` or `.cbr`
 - **Guided View** steps through a page panel by panel, automatically panning and zooming to each one in reading order — right-to-left for manga, if you tell it to. An on-device machine learning model finds the actual panel boundaries (no server, no API calls, nothing sent anywhere); if a page has nothing it can confidently detect, it just shows the whole page rather than guessing wrong. You can also drag or scroll to nudge the framing yourself if it's ever slightly off.
 - **Manual zoom, double-tap to zoom, and a thumbnail sidebar** (a swipeable filmstrip on mobile) for everyday reading.
 - **Works with no server at all.** You can open `index.html` straight from disk, with no internet connection and nothing installed, and it still reads comics — Guided View's panel detection included.
-- **[ACBF Panel Editor](editor.html)** — a separate tool for publishers: open an archive, get an automatic first-draft of every page's panels (from the same on-device model, or from an `.acbf` file already inside the archive), then drag, resize, add, delete, and reorder panels by hand before exporting a standalone `.acbf` file or a repackaged `.cbz` with it bundled in. Guided View always prefers hand-authored ACBF data over guessing.
+- **[Comicaa ACBF Panel Editor](editor.html)** — a separate tool for publishers: open an archive, get an automatic first-draft of every page's panels (from the same on-device model, or from an `.acbf` file already inside the archive), then drag, resize, add, delete, and reorder panels by hand before exporting a standalone `.acbf` file or a repackaged `.cbz` with it bundled in. Guided View always prefers hand-authored ACBF data over guessing.
 
 ## Why
 

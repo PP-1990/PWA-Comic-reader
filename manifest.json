@@ -1,6 +1,6 @@
 {
-  "name": "CBZ Comic Reader",
-  "short_name": "Comic Reader",
+  "name": "Comicaa",
+  "short_name": "Comicaa",
   "description": "Read CBZ/CBR comic archives entirely on-device.",
   "start_url": "./index.html",
   "scope": "./",

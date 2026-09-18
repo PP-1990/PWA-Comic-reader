@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ACBF Panel Editor Demo</title>
+<title>Comicaa ACBF Panel Editor Demo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
@@ -253,6 +253,16 @@
     position: relative;
     z-index: 1;
   }
+  .title-tag {
+    font-family: var(--font-mono);
+    font-size: clamp(14px, 1.7vw, 21px);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--blue);
+    margin: clamp(6px, 1.1vh, 11px) 0 0;
+    position: relative;
+    z-index: 1;
+  }
   .title-sub {
     font-size: clamp(15px, 1.5vw, 21px);
     color: var(--paper);
@@ -405,7 +415,8 @@
         <span style="left:44%; top:4%; width:50%; height:30%; transform:rotate(4deg);"></span>
       </div>
       <p class="eyebrow">Live demo — for comic publishers</p>
-      <h1 class="title-main">ACBF<br>Panel Editor</h1>
+      <h1 class="title-main">Comicaa</h1>
+      <p class="title-tag">ACBF Panel Editor</p>
       <p class="title-sub">Turning a comic archive into a panel-by-panel reading experience — without redrawing a single page.</p>
       <div class="title-meta">
         <span class="fmt-chip">.CBZ</span>
