@@ -23,7 +23,7 @@
 // the whole point of this file is to avoid re-downloading things.
 // ============================================================================
 
-const CACHE_NAME = "cbz-reader-v55";
+const CACHE_NAME = "cbz-reader-v56";
 
 // Every file the app needs in order to run at all. These all get
 // downloaded and saved to the local cache up front (see "install" below),
@@ -50,7 +50,8 @@ const APP_SHELL = [
     "./unrar/unrar-bundle.js",
     "./onnx/ort.min.js",
     "./panel-detection.js",
-    "./archive-extract.js"
+    "./archive-extract.js",
+    "./docs/brand/comicaa-logo-badge.svg"
 ];
 
 // Runs once, the first time this exact version of sw.js is loaded (i.e.
