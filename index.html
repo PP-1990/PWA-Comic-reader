@@ -63,6 +63,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Comicaa</title>
 
+<!-- Bangers, for the "COMICAA" logo badge only — same webfont
+     docs/architecture.html uses. Purely cosmetic: the badge's
+     font-family falls back to Impact/Arial if this never loads (no
+     internet the first time the app is opened), so nothing breaks
+     offline, it just looks a little less comic-stamp-y. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&display=swap" rel="stylesheet">
+
 <!-- Basic "make this installable as an app" setup. You generally won't
      need to touch these unless you're changing the app's name or icon. -->
 <link rel="manifest" href="manifest.json">
@@ -195,12 +204,12 @@
         box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
 
-    /* The Comicaa wordmark: a small gold comic-stamp badge, echoing the
-       same "COMICAA" badge used in docs/architecture.html. Uses only
-       system fonts (Impact, falling back to bold Arial) rather than a
-       Google Fonts import — this app is meant to open straight from disk
-       with zero network access, and a webfont would just silently fail
-       to render in that case. */
+    /* The Comicaa wordmark: a small gold comic-stamp badge, matching the
+       same "COMICAA" badge used in docs/architecture.html — same
+       Bangers webfont, same gold/black/rotation treatment. Falls back to
+       Impact/Arial if Bangers hasn't loaded (e.g. opened offline before
+       the font was ever cached), rather than the browser's default
+       "cursive" font, which tends to look nothing like a comic stamp. */
     .logo-badge {
         display: inline-flex;
         align-items: center;
@@ -208,11 +217,10 @@
         margin-right: 12px;
         background: #ffd54f;
         color: #1a1408;
-        font-family: Impact, "Arial Narrow", Arial, sans-serif;
-        font-weight: bold;
-        letter-spacing: 0.04em;
-        font-size: 15px;
-        padding: 3px 10px 4px;
+        font-family: "Bangers", Impact, "Arial Narrow", Arial, sans-serif;
+        letter-spacing: 0.06em;
+        font-size: 17px;
+        padding: 3px 12px 5px;
         border-radius: 3px;
         border: 2px solid #000;
         transform: rotate(-1.4deg);
