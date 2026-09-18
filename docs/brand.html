@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Comicaa Brand Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --backdrop: #0a0a0a;
+    --paper: #141311;
+    --panel: #1c1b18;
+    --panel-lift: #211f1b;
+    --ink: #000000;
+    --hair: #38352e;
+    --text: #ece7da;
+    --muted: #9a9484;
+    --gold: #ffd54f;
+    --gold-deep: #c79a1f;
+    --mark-ink: #1a1408;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--backdrop);
+    color: var(--text);
+    font-family: "IBM Plex Sans", Arial, sans-serif;
+  }
+
+  body {
+    padding: clamp(16px, 4vw, 48px) 0 clamp(40px, 6vh, 80px);
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 clamp(16px, 3vw, 28px);
+    display: flex;
+    flex-direction: column;
+    gap: clamp(16px, 2vh, 24px);
+  }
+
+  /* ---------- masthead (matches architecture.html) ---------- */
+  .masthead {
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1.5px) 0 0 / 10px 10px,
+      var(--paper);
+    border: 3px solid var(--ink);
+    border-radius: 10px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    padding: clamp(20px, 3vh, 32px) clamp(20px, 3vw, 34px);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .masthead-left { display: flex; flex-direction: column; gap: 8px; max-width: 68%; min-width: 260px; }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    align-self: flex-start;
+    background: var(--gold);
+    color: var(--mark-ink);
+    font-family: "Bangers", cursive;
+    letter-spacing: 0.06em;
+    font-size: clamp(13px, 1.5vw, 17px);
+    padding: 3px 12px 5px;
+    border-radius: 3px;
+    border: 2px solid var(--ink);
+    transform: rotate(-1.4deg);
+  }
+
+  h1 {
+    margin: 0;
+    font-family: "Barlow Condensed", Arial, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    font-size: clamp(28px, 3.6vw, 44px);
+    line-height: 1.02;
+    text-wrap: balance;
+    color: var(--text);
+  }
+
+  .subtitle {
+    margin: 0;
+    max-width: 60ch;
+    font-size: clamp(12px, 1.15vw, 14.5px);
+    line-height: 1.55;
+    color: var(--muted);
+  }
+
+  .license-tag {
+    flex-shrink: 0;
+    text-align: right;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: clamp(10px, 1vw, 11.5px);
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .license-tag b { color: var(--gold); font-weight: 600; }
+
+  /* ---------- generic section panel ---------- */
+  .section {
+    position: relative;
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1.5px) 0 0 / 10px 10px,
+      var(--paper);
+    border: 2px solid var(--ink);
+    border-radius: 10px;
+    padding: clamp(22px, 3vh, 30px) clamp(20px, 3vw, 32px);
+  }
+
+  .section-label {
+    position: absolute;
+    top: -11px;
+    left: 22px;
+    background: var(--backdrop);
+    padding: 0 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: clamp(9.5px, 0.95vw, 11px);
+    letter-spacing: 0.1em;
+    color: var(--gold);
+    text-transform: uppercase;
+  }
+
+  .section h2 {
+    margin: 4px 0 6px;
+    font-family: "Barlow Condensed", Arial, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    font-size: clamp(20px, 2.2vw, 27px);
+    color: var(--text);
+  }
+
+  .section > p.lede {
+    margin: 0 0 clamp(18px, 2.6vh, 26px);
+    max-width: 72ch;
+    font-size: clamp(12.5px, 1.1vw, 14.5px);
+    line-height: 1.6;
+    color: var(--muted);
+  }
+
+  /* ---------- hero mark display ---------- */
+  .mark-stage {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(circle, rgba(255,213,79,0.07) 1px, transparent 1.5px) 0 0 / 12px 12px,
+      var(--panel);
+    border: 2px solid var(--hair);
+    border-radius: 8px;
+    padding: clamp(36px, 7vh, 72px) 20px;
+  }
+  .mark-stage img { width: min(380px, 70%); height: auto; }
+
+  /* ---------- spec table ---------- */
+  .spec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1px;
+    background: var(--hair);
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: clamp(16px, 2.4vh, 22px);
+  }
+  .spec-cell {
+    background: var(--panel);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .spec-cell .k {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .spec-cell .v {
+    font-family: "Barlow Condensed", Arial, sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--text);
+  }
+  .spec-cell .v.gold { color: var(--gold); }
+
+  /* ---------- color swatches ---------- */
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: clamp(12px, 1.6vw, 18px);
+  }
+  .swatch {
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .swatch-fill { height: 84px; }
+  .swatch-info { padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; }
+  .swatch-info .name { font-family: "Barlow Condensed", Arial, sans-serif; font-weight: 700; font-size: 16px; text-transform: uppercase; color: var(--text); }
+  .swatch-info .hex { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--gold); }
+  .swatch-info .use { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
+  /* ---------- variants grid ---------- */
+  .variants {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: clamp(14px, 1.8vw, 20px);
+  }
+  .variant-card {
+    border: 2px solid var(--ink);
+    border-radius: 8px;
+    background: var(--panel);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .variant-stage {
+    height: 130px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .variant-stage.on-dark { background: #141311; }
+  .variant-stage.on-light { background: #e9e2cf; }
+  .variant-stage img { max-width: 80%; max-height: 70px; }
+  .variant-meta {
+    border-top: 1px solid var(--hair);
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .variant-meta .file {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11.5px;
+    color: var(--gold);
+  }
+  .variant-meta .file a { color: inherit; text-decoration: none; }
+  .variant-meta .file a:hover { text-decoration: underline; }
+  .variant-meta .desc { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
+  /* ---------- do / dont ---------- */
+  .dodont {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: clamp(14px, 1.8vw, 20px);
+  }
+  .dodont-col {
+    border-radius: 8px;
+    border: 2px solid var(--ink);
+    padding: clamp(14px, 2vh, 18px) clamp(14px, 1.8vw, 18px);
+  }
+  .dodont-col.do { background: rgba(139, 195, 74, 0.07); }
+  .dodont-col.dont { background: rgba(229, 90, 74, 0.07); }
+  .dodont-col h3 {
+    margin: 0 0 10px;
+    font-family: "Barlow Condensed", Arial, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-size: 14px;
+  }
+  .dodont-col.do h3 { color: #9ccc65; }
+  .dodont-col.dont h3 { color: #ef7061; }
+  .dodont-col ul { margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 7px; }
+  .dodont-col li { font-size: 12px; line-height: 1.45; color: var(--text); }
+
+  .clearspace-demo {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1.5px) 0 0 / 10px 10px,
+      var(--panel);
+    border: 2px dashed var(--hair);
+    border-radius: 8px;
+    padding: clamp(28px, 5vh, 48px) 20px;
+  }
+  .clearspace-box {
+    position: relative;
+    display: inline-flex;
+  }
+  .clearspace-box img { display: block; width: 220px; }
+  .clearspace-box .tick { position: absolute; border: 1px dashed var(--gold-deep); opacity: 0.7; }
+
+  @media (max-width: 640px) {
+    .dodont { grid-template-columns: 1fr; }
+    .masthead-left { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <span class="badge">COMICAA</span>
+      <h1>Logo &amp; Brand Guide</h1>
+      <p class="subtitle">The Comicaa wordmark, its exact construction, colors, and usage rules — so the mark stays the same one pixel-verified place it is today, wherever it gets used next.</p>
+    </div>
+    <div class="license-tag">v1 &middot; <b>logo spec</b><br>docs/brand.html</div>
+  </div>
+
+  <!-- ================= THE MARK ================= -->
+  <div class="section">
+    <span class="section-label">01 &middot; the mark</span>
+    <h2>Primary logo</h2>
+    <p class="lede">This is the exact badge used in the reader and editor headers today — not a redraw. Its letterforms are real Bangers glyph outlines, converted to static vector paths, so the file renders identically everywhere with zero dependency on the font being installed or loaded.</p>
+    <div class="mark-stage">
+      <img src="brand/comicaa-logo-badge.svg" alt="Comicaa logo: the word COMICAA in bold comic lettering, black ink on a gold pill with a black outline, tilted slightly counter-clockwise">
+    </div>
+    <div class="spec-grid">
+      <div class="spec-cell"><span class="k">Typeface</span><span class="v">Bangers</span></div>
+      <div class="spec-cell"><span class="k">Case</span><span class="v">All caps</span></div>
+      <div class="spec-cell"><span class="k">Rotation</span><span class="v gold">&minus;1.4&deg;</span></div>
+      <div class="spec-cell"><span class="k">Letter-spacing</span><span class="v">0.06em</span></div>
+      <div class="spec-cell"><span class="k">Corner radius</span><span class="v">~10% of height</span></div>
+      <div class="spec-cell"><span class="k">Outline weight</span><span class="v">~6.5% of height</span></div>
+    </div>
+  </div>
+
+  <!-- ================= CLEAR SPACE / MIN SIZE ================= -->
+  <div class="section">
+    <span class="section-label">02 &middot; space &amp; size</span>
+    <h2>Clear space &amp; minimum size</h2>
+    <p class="lede">Keep open space around the mark at least equal to the height of the badge itself — don't let text, rules, or other logos cross into that margin. Below the minimum widths here, the outline and the tighter letter joins (the <b>C</b>, the <b>A</b> apex) start to clog up on screen.</p>
+    <div class="clearspace-demo">
+      <div class="clearspace-box">
+        <img src="brand/comicaa-logo-flat.svg" alt="Comicaa logo with clear space margin illustrated around it">
+      </div>
+    </div>
+    <div class="spec-grid">
+      <div class="spec-cell"><span class="k">Clear space</span><span class="v">&ge; 1&times; badge height, all sides</span></div>
+      <div class="spec-cell"><span class="k">Min width &mdash; badge</span><span class="v gold">72px</span></div>
+      <div class="spec-cell"><span class="k">Min width &mdash; wordmark only</span><span class="v gold">120px</span></div>
+      <div class="spec-cell"><span class="k">Favicon / app icon</span><span class="v">use the flat variant</span></div>
+    </div>
+  </div>
+
+  <!-- ================= COLOR ================= -->
+  <div class="section">
+    <span class="section-label">03 &middot; color</span>
+    <h2>Color</h2>
+    <p class="lede">Three colors, always this combination on the primary mark — the gold and the ink are load-bearing; swapping either breaks recognition.</p>
+    <div class="swatches">
+      <div class="swatch">
+        <div class="swatch-fill" style="background:#ffd54f;"></div>
+        <div class="swatch-info">
+          <span class="name">Comicaa Gold</span>
+          <span class="hex">#FFD54F</span>
+          <span class="use">The badge fill. Always the ground the wordmark sits on.</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-fill" style="background:#1a1408;"></div>
+        <div class="swatch-info">
+          <span class="name">Comicaa Ink</span>
+          <span class="hex">#1A1408</span>
+          <span class="use">The letterforms. A warm near-black, not pure black.</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-fill" style="background:#000000;"></div>
+        <div class="swatch-info">
+          <span class="name">Outline</span>
+          <span class="hex">#000000</span>
+          <span class="use">The badge's border only &mdash; pure black, distinct from the ink above.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= TYPOGRAPHY ================= -->
+  <div class="section">
+    <span class="section-label">04 &middot; typography</span>
+    <h2>Typeface</h2>
+    <p class="lede">Bangers (Google Fonts, SIL Open Font License) is reserved for the logo mark only. It is not the product's UI or body font anywhere else — the reader and editor use plain system sans-serif for everything except this one badge, on purpose.</p>
+    <div class="spec-grid">
+      <div class="spec-cell"><span class="k">Family</span><span class="v">Bangers</span></div>
+      <div class="spec-cell"><span class="k">Weight</span><span class="v">400 (only weight it has)</span></div>
+      <div class="spec-cell"><span class="k">Source</span><span class="v">fonts.google.com/specimen/Bangers</span></div>
+      <div class="spec-cell"><span class="k">License</span><span class="v gold">SIL OFL 1.1</span></div>
+    </div>
+  </div>
+
+  <!-- ================= VARIANTS ================= -->
+  <div class="section">
+    <span class="section-label">05 &middot; variants &amp; files</span>
+    <h2>Variants</h2>
+    <p class="lede">Four files cover every placement. Don't recreate the wordmark by typing "COMICAA" in Bangers directly — the spacing here was tuned per letter-pair and won't match a live-rendered string.</p>
+    <div class="variants">
+      <div class="variant-card">
+        <div class="variant-stage on-dark"><img src="brand/comicaa-logo-badge.svg" alt="Badge variant"></div>
+        <div class="variant-meta">
+          <span class="file"><a href="brand/comicaa-logo-badge.svg">comicaa-logo-badge.svg</a></span>
+          <span class="desc">Default. Use this unless another variant is specifically called for.</span>
+        </div>
+      </div>
+      <div class="variant-card">
+        <div class="variant-stage on-dark"><img src="brand/comicaa-logo-flat.svg" alt="Flat variant"></div>
+        <div class="variant-meta">
+          <span class="file"><a href="brand/comicaa-logo-flat.svg">comicaa-logo-flat.svg</a></span>
+          <span class="desc">No rotation. For square frames &mdash; app icons, favicons.</span>
+        </div>
+      </div>
+      <div class="variant-card">
+        <div class="variant-stage on-light"><img src="brand/comicaa-wordmark-ink.svg" alt="Ink wordmark variant"></div>
+        <div class="variant-meta">
+          <span class="file"><a href="brand/comicaa-wordmark-ink.svg">comicaa-wordmark-ink.svg</a></span>
+          <span class="desc">No pill. For stamping onto a light or colored surface.</span>
+        </div>
+      </div>
+      <div class="variant-card">
+        <div class="variant-stage on-dark"><img src="brand/comicaa-wordmark-white.svg" alt="White wordmark variant"></div>
+        <div class="variant-meta">
+          <span class="file"><a href="brand/comicaa-wordmark-white.svg">comicaa-wordmark-white.svg</a></span>
+          <span class="desc">No pill, reversed. For dark backgrounds only.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= DO / DONT ================= -->
+  <div class="section">
+    <span class="section-label">06 &middot; usage</span>
+    <h2>Do &amp; don't</h2>
+    <div class="dodont">
+      <div class="dodont-col do">
+        <h3>Do</h3>
+        <ul>
+          <li>Use the provided SVGs as-is, at any size &mdash; they're vector.</li>
+          <li>Keep the gold-and-ink pairing on the primary mark.</li>
+          <li>Keep the &minus;1.4&deg; tilt on the badge variant.</li>
+          <li>Give it clear space at least equal to its own height.</li>
+          <li>Use the white or ink wordmark-only files on backgrounds the pill doesn't suit.</li>
+        </ul>
+      </div>
+      <div class="dodont-col dont">
+        <h3>Don't</h3>
+        <ul>
+          <li>Recolor the fill, outline, or letterforms.</li>
+          <li>Stretch, skew, or otherwise distort the proportions.</li>
+          <li>Add drop shadows, glows, or bevels.</li>
+          <li>Straighten the badge or rotate it further.</li>
+          <li>Retype "COMICAA" in Bangers instead of using the file &mdash; the kerning won't match.</li>
+          <li>Place it on a busy photo or low-contrast background.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
