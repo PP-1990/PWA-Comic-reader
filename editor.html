@@ -111,6 +111,28 @@
         white-space: nowrap;
     }
 
+    /* The Comicaa wordmark: a small gold comic-stamp badge, echoing the
+       same "COMICAA" badge used in docs/architecture.html. Uses only
+       system fonts (Impact, falling back to bold Arial) rather than a
+       Google Fonts import — this app is meant to open straight from disk
+       with zero network access, and a webfont would just silently fail
+       to render in that case. */
+    .logo-badge {
+        display: inline-flex;
+        align-items: center;
+        flex-shrink: 0;
+        background: #ffd54f;
+        color: #1a1408;
+        font-family: Impact, "Arial Narrow", Arial, sans-serif;
+        font-weight: bold;
+        letter-spacing: 0.04em;
+        font-size: 15px;
+        padding: 3px 10px 4px;
+        border-radius: 3px;
+        border: 2px solid #000;
+        transform: rotate(-1.4deg);
+    }
+
     #topbar label {
         font-size: 12px;
         color: #ccc;
@@ -637,7 +659,8 @@
 <body>
 
 <div id="topbar">
-    <h1>Comicaa ACBF Panel Editor</h1>
+    <span class="logo-badge">COMICAA</span>
+    <h1>ACBF Panel Editor</h1>
     <input type="file" id="fileInput" accept=".cbz,.cbr,.zip,.rar">
     <span class="status" id="status"></span>
     <label>Title
