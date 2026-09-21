@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Comicaa Designer Logo Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --backdrop: #0a0a0a;
+    --paper: #141311;
+    --panel: #1c1b18;
+    --ink-black: #000000;
+    --hair: #38352e;
+    --text: #ece7da;
+    --muted: #9a9484;
+    --accent: #fbcd18;       /* designer's Comicaa Yellow */
+    --accent-deep: #c29a0f;
+    --mark-ink: #231f20;     /* designer's Comicaa Ink */
+    --stage-light: #f1ecdf;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--backdrop);
+    color: var(--text);
+    font-family: "IBM Plex Sans", Arial, sans-serif;
+  }
+
+  body { padding: clamp(16px, 4vw, 48px) 0 clamp(40px, 6vh, 80px); }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 clamp(16px, 3vw, 28px);
+    display: flex;
+    flex-direction: column;
+    gap: clamp(16px, 2vh, 24px);
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1.5px) 0 0 / 10px 10px,
+      var(--paper);
+    border: 3px solid var(--ink-black);
+    border-radius: 10px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    padding: clamp(20px, 3vh, 32px) clamp(20px, 3vw, 34px);
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .masthead-left { display: flex; flex-direction: column; gap: 12px; max-width: 68%; min-width: 260px; }
+  .masthead-logo { height: clamp(40px, 5vw, 58px); width: auto; align-self: flex-start; display: block; }
+
+  h1 {
+    margin: 0;
+    font-family: "Barlow Condensed", Arial, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    font-size: clamp(28px, 3.6vw, 44px);
+    line-height: 1.02;
+    text-wrap: balance;
+  }
+  .subtitle {
+    margin: 0;
+    max-width: 62ch;
+    font-size: clamp(12px, 1.15vw, 14.5px);
+    line-height: 1.55;
+    color: var(--muted);
+  }
+  .license-tag {
+    flex-shrink: 0;
+    text-align: right;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: clamp(10px, 1vw, 11.5px);
+    color: var(--muted);
+    line-height: 1.7;
+  }
+  .license-tag b { color: var(--accent); font-weight: 600; }
+  .license-tag a { color: var(--accent); text-decoration: none; }
+  .license-tag a:hover { text-decoration: underline; }
+
+  /* ---------- section panel ---------- */
+  .section {
+    position: relative;
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.045) 1px, transparent 1.5px) 0 0 / 10px 10px,
+      var(--paper);
+    border: 2px solid var(--ink-black);
+    border-radius: 10px;
+    padding: clamp(22px, 3vh, 30px) clamp(20px, 3vw, 32px);
+  }
+  .section-label {
+    position: absolute;
+    top: -11px;
+    left: 22px;
+    background: var(--backdrop);
+    padding: 0 8px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: clamp(9.5px, 0.95vw, 11px);
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  .section h2 {
+    margin: 4px 0 6px;
+    font-family: "Barlow Condensed", Arial, sans-serif;
+    font-weight: 700;
+    text-transform: uppercase;
+    font-size: clamp(20px, 2.2vw, 27px);
+  }
+  .section > p.lede {
+    margin: 0 0 clamp(18px, 2.6vh, 26px);
+    max-width: 74ch;
+    font-size: clamp(12.5px, 1.1vw, 14.5px);
+    line-height: 1.6;
+    color: var(--muted);
+  }
+  .section > p.lede b { color: var(--text); font-weight: 600; }
+
+  /* ---------- the two delivered lockups ---------- */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: clamp(14px, 1.8vw, 20px);
+  }
+  .tile { border: 2px solid var(--ink-black); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .tile-stage {
+    display: flex; align-items: center; justify-content: center;
+    padding: clamp(30px, 6vh, 56px) clamp(16px, 3vw, 32px);
+  }
+  .tile-stage.light { background: var(--stage-light); }
+  .tile-stage.dark { background: #141311; }
+  .tile-stage img { width: min(400px, 92%); height: auto; display: block; }
+  .tile-meta {
+    border-top: 1px solid var(--hair);
+    padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .tile-meta .name { font-family: "Barlow Condensed", Arial, sans-serif; font-weight: 700; text-transform: uppercase; font-size: 15px; }
+  .tile-meta .note { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+
+  /* ---------- spec grid ---------- */
+  .spec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 1px;
+    background: var(--hair);
+    border: 1px solid var(--hair);
+    border-radius: 6px;
+    overflow: hidden;
+    margin-top: clamp(16px, 2.4vh, 22px);
+  }
+  .spec-cell { background: var(--panel); padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+  .spec-cell .k {
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .spec-cell .v { font-family: "Barlow Condensed", Arial, sans-serif; font-weight: 700; font-size: 17px; }
+  .spec-cell .v.hl { color: var(--accent); }
+
+  /* ---------- clear space demo ---------- */
+  .clearspace-demo {
+    display: flex; align-items: center; justify-content: center;
+    background:
+      radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1.5px) 0 0 / 10px 10px,
+      var(--panel);
+    border: 2px dashed var(--hair);
+    border-radius: 8px;
+    padding: clamp(24px, 4vh, 40px) 16px;
+    overflow-x: auto;
+  }
+  /* Logo is 320px wide -> 80.36px tall (663.84 : 166.72). Clear space is
+     half that height, so 40px of padding on every side. */
+  .clearspace-box {
+    flex-shrink: 0;
+    position: relative;
+    padding: 40px;
+    background: var(--stage-light);
+    outline: 1px dashed var(--accent-deep);
+  }
+  .clearspace-box img { display: block; width: 320px; height: auto; outline: 1px solid rgba(35,31,32,0.35); }
+  .clearspace-box .dim {
+    position: absolute;
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; color: #6b5a12;
+    letter-spacing: 0.04em;
+  }
+  .clearspace-box .dim.t { top: 12px; left: 50%; transform: translateX(-50%); }
+  .clearspace-box .dim.b { bottom: 12px; left: 50%; transform: translateX(-50%); }
+  .clearspace-box .dim.l { left: 6px; top: 50%; transform: translateY(-50%); }
+  .clearspace-box .dim.r { right: 6px; top: 50%; transform: translateY(-50%); }
+
+  /* ---------- color swatches ---------- */
+  .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: clamp(12px, 1.6vw, 18px); }
+  .swatch { border: 2px solid var(--ink-black); border-radius: 8px; overflow: hidden; background: var(--panel); }
+  .swatch-fill { height: 84px; }
+  .swatch-info { padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; }
+  .swatch-info .name { font-family: "Barlow Condensed", Arial, sans-serif; font-weight: 700; font-size: 16px; text-transform: uppercase; }
+  .swatch-info .hex { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--accent); }
+  .swatch-info .use { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+
+  /* ---------- variants ---------- */
+  .variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: clamp(14px, 1.8vw, 20px); }
+  .variant-card { border: 2px solid var(--ink-black); border-radius: 8px; background: var(--panel); display: flex; flex-direction: column; overflow: hidden; }
+  .variant-stage { height: 130px; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .variant-stage.on-dark { background: #141311; }
+  .variant-stage.on-light { background: var(--stage-light); }
+  .variant-stage img { max-width: 82%; max-height: 66px; }
+  .variant-meta { border-top: 1px solid var(--hair); padding: 12px 14px; display: flex; flex-direction: column; gap: 5px; }
+  .variant-meta .file { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--accent); }
+  .variant-meta .file a { color: inherit; text-decoration: none; }
+  .variant-meta .file a:hover { text-decoration: underline; }
+  .variant-meta .desc { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+  .origin {
+    align-self: flex-start;
+    font-family: "IBM Plex Mono", monospace; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase;
+    padding: 1px 7px; border-radius: 3px; border: 1px solid var(--hair); color: var(--muted);
+  }
+  .origin.delivered { color: var(--accent); border-color: var(--accent-deep); }
+
+  /* ---------- slot mapping table ---------- */
+  .table-wrap { overflow-x: auto; margin-top: clamp(16px, 2.4vh, 22px); border: 1px solid var(--hair); border-radius: 6px; }
+  table.slots { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 700px; }
+  table.slots th, table.slots td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--hair); background: var(--panel); }
+  table.slots tr:last-child td { border-bottom: none; }
+  table.slots th {
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--muted); font-weight: 500;
+  }
+  table.slots td code { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; color: var(--accent); white-space: nowrap; }
+  table.slots td.why { color: var(--muted); }
+
+  /* ---------- do / don't ---------- */
+  .dodont { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(14px, 1.8vw, 20px); }
+  .dodont-col { border-radius: 8px; border: 2px solid var(--ink-black); padding: clamp(14px, 2vh, 18px) clamp(14px, 1.8vw, 18px); }
+  .dodont-col.do { background: rgba(139,195,74,0.07); }
+  .dodont-col.dont { background: rgba(229,90,74,0.07); }
+  .dodont-col h3 {
+    margin: 0 0 10px; font-family: "Barlow Condensed", Arial, sans-serif; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em; font-size: 14px;
+  }
+  .dodont-col.do h3 { color: #9ccc65; }
+  .dodont-col.dont h3 { color: #ef7061; }
+  .dodont-col ul { margin: 0; padding: 0 0 0 18px; display: flex; flex-direction: column; gap: 7px; }
+  .dodont-col li { font-size: 12px; line-height: 1.45; }
+
+  /* ---------- open items ---------- */
+  .open-items { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .open-items li {
+    display: flex; gap: 12px; align-items: baseline;
+    background: var(--panel); border: 1px solid var(--hair); border-radius: 6px; padding: 12px 14px;
+    font-size: 12.5px; line-height: 1.5;
+  }
+  .open-items .tag {
+    flex-shrink: 0; font-family: "IBM Plex Mono", monospace; font-size: 10px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--accent);
+  }
+
+  @media (max-width: 640px) {
+    .dodont { grid-template-columns: 1fr; }
+    .masthead-left { max-width: 100%; }
+    .open-items li { flex-direction: column; gap: 4px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div class="masthead-left">
+      <img class="masthead-logo" src="brand-designer/comicaa-logo-reversed.svg" alt="Comicaa logo, designer version">
+      <h1>Designer Logo &amp; Brand Guide</h1>
+      <p class="subtitle">The Comicaa logo as drawn by the designer &mdash; delivered as two lockups, extended here into the same five variants as the original guide so either mark can drop into the same slots.</p>
+    </div>
+    <div class="license-tag">v1 &middot; <b>designer logo spec</b><br>docs/brand-designer.html<br>see also <a href="brand.html">the original badge mark</a></div>
+  </div>
+
+  <!-- ================= THE MARK ================= -->
+  <div class="section">
+    <span class="section-label">01 &middot; the mark</span>
+    <h2>The two delivered lockups</h2>
+    <p class="lede">Both files have identical geometry &mdash; a thin <b>keyline</b> floating around hand-drawn <b>lettering</b> &mdash; and differ only in which colour goes on which layer. They are copied into the repo byte-for-byte as delivered; nothing here is redrawn.</p>
+    <div class="tiles">
+      <div class="tile">
+        <div class="tile-stage light"><img src="brand-designer/comicaa-logo-primary.svg" alt="Primary Comicaa logo: ink lettering with a yellow keyline"></div>
+        <div class="tile-meta">
+          <span class="name">Primary</span>
+          <span class="note">Ink lettering, yellow keyline. For light and mid-tone backgrounds. Delivered as <b>Asset 5.svg</b>.</span>
+        </div>
+      </div>
+      <div class="tile">
+        <div class="tile-stage dark"><img src="brand-designer/comicaa-logo-reversed.svg" alt="Reversed Comicaa logo: yellow lettering with a white keyline"></div>
+        <div class="tile-meta">
+          <span class="name">Reversed</span>
+          <span class="note">Yellow lettering, white keyline. For dark backgrounds. Delivered as <b>Asset 4.svg</b>.</span>
+        </div>
+      </div>
+    </div>
+    <div class="spec-grid">
+      <div class="spec-cell"><span class="k">Artboard</span><span class="v">663.84 &times; 166.72</span></div>
+      <div class="spec-cell"><span class="k">Aspect ratio</span><span class="v hl">&asymp; 4 : 1</span></div>
+      <div class="spec-cell"><span class="k">Layers</span><span class="v">2 &mdash; keyline + lettering</span></div>
+      <div class="spec-cell"><span class="k">Keyline weight</span><span class="v">&asymp; 4&ndash;5 units (~3% of height)</span></div>
+      <div class="spec-cell"><span class="k">Keyline&ndash;letter gap</span><span class="v">&asymp; 8&ndash;11 units (~6%)</span></div>
+      <div class="spec-cell"><span class="k">Rotation</span><span class="v">None &mdash; slant is in the lettering</span></div>
+    </div>
+  </div>
+
+  <!-- ================= CLEAR SPACE / MIN SIZE ================= -->
+  <div class="section">
+    <span class="section-label">02 &middot; space &amp; size</span>
+    <h2>Clear space &amp; minimum size</h2>
+    <p class="lede">Keep open space around the lockup at least <b>half its own height</b> on every side, measured from the outer edge of the keyline. The keyline is only ~3% of the lockup's height, so it is what fails first when the mark gets small &mdash; below the minimums here it drops under a pixel and shimmers or disappears.</p>
+    <div class="clearspace-demo">
+      <div class="clearspace-box">
+        <span class="dim t">&frac12; H</span><span class="dim b">&frac12; H</span><span class="dim l">&frac12;H</span><span class="dim r">&frac12;H</span>
+        <img src="brand-designer/comicaa-logo-primary.svg" alt="Primary logo with its clear-space margin marked">
+      </div>
+    </div>
+    <div class="spec-grid">
+      <div class="spec-cell"><span class="k">Clear space</span><span class="v">&ge; &frac12; lockup height, all sides</span></div>
+      <div class="spec-cell"><span class="k">Min width &mdash; lockup</span><span class="v hl">160px</span></div>
+      <div class="spec-cell"><span class="k">Min width &mdash; wordmark only</span><span class="v hl">96px</span></div>
+      <div class="spec-cell"><span class="k">Square placements</span><span class="v">no icon mark supplied yet</span></div>
+    </div>
+  </div>
+
+  <!-- ================= COLOR ================= -->
+  <div class="section">
+    <span class="section-label">03 &middot; color</span>
+    <h2>Color</h2>
+    <p class="lede">Two colours come from the designer's files; white is the reversed keyline. The fourth is derived here for the grey wordmark and is not a designer-specified colour.</p>
+    <div class="swatches">
+      <div class="swatch">
+        <div class="swatch-fill" style="background:#fbcd18;"></div>
+        <div class="swatch-info">
+          <span class="name">Comicaa Yellow</span>
+          <span class="hex">#FBCD18 &middot; 251, 205, 24</span>
+          <span class="use">The keyline on the primary; the lettering on the reversed.</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-fill" style="background:#231f20;"></div>
+        <div class="swatch-info">
+          <span class="name">Comicaa Ink</span>
+          <span class="hex">#231F20 &middot; 35, 31, 32</span>
+          <span class="use">The lettering on the primary and the ink wordmark. A soft near-black &mdash; don't "correct" it to #000.</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-fill" style="background:#ffffff;"></div>
+        <div class="swatch-info">
+          <span class="name">White</span>
+          <span class="hex">#FFFFFF &middot; 255, 255, 255</span>
+          <span class="use">The keyline on the reversed, and the white wordmark.</span>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-fill" style="background:#918f90;"></div>
+        <div class="swatch-info">
+          <span class="name">Ink 50%</span>
+          <span class="hex">#918F90 &middot; 145, 143, 144</span>
+          <span class="use">Derived: Comicaa Ink at 50% over white. Used only by the grey wordmark.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= LETTERING ================= -->
+  <div class="section">
+    <span class="section-label">04 &middot; lettering</span>
+    <h2>Custom lettering</h2>
+    <p class="lede">The wordmark is drawn artwork, not a typeface, and ships as outlined vector paths &mdash; nothing to install and nothing to load. Two details are part of the design and must survive any adaptation: the <b>O's counter is a speech bubble</b>, and the <b>i carries a dot</b>.</p>
+    <div class="spec-grid">
+      <div class="spec-cell"><span class="k">Type</span><span class="v">Custom-drawn lettering</span></div>
+      <div class="spec-cell"><span class="k">Delivered as</span><span class="v">Outlined vector paths</span></div>
+      <div class="spec-cell"><span class="k">Font required</span><span class="v hl">None</span></div>
+      <div class="spec-cell"><span class="k">Recreate with a font</span><span class="v">Never</span></div>
+    </div>
+  </div>
+
+  <!-- ================= VARIANTS ================= -->
+  <div class="section">
+    <span class="section-label">05 &middot; variants &amp; files</span>
+    <h2>Variants</h2>
+    <p class="lede">Five files in the same five slots as <a href="brand.html" style="color:var(--accent);">the original guide</a>: two full lockups plus ink, white and grey wordmarks. The two lockups are the designer's; the three wordmarks are cut from the designer's lettering layer and recoloured &mdash; no outlines re-drawn, nothing re-spaced.</p>
+    <div class="variants">
+      <div class="variant-card">
+        <div class="variant-stage on-light"><img src="brand-designer/comicaa-logo-primary.svg" alt="Primary lockup"></div>
+        <div class="variant-meta">
+          <span class="origin delivered">Designer-delivered</span>
+          <span class="file"><a href="brand-designer/comicaa-logo-primary.svg">comicaa-logo-primary.svg</a></span>
+          <span class="desc">Default. Ink lettering, yellow keyline &mdash; for light and mid-tone backgrounds.</span>
+        </div>
+      </div>
+      <div class="variant-card">
+        <div class="variant-stage on-dark"><img src="brand-designer/comicaa-logo-reversed.svg" alt="Reversed lockup"></div>
+        <div class="variant-meta">
+          <span class="origin delivered">Designer-delivered</span>
+          <span class="file"><a href="brand-designer/comicaa-logo-reversed.svg">comicaa-logo-reversed.svg</a></span>
+          <span class="desc">Yellow lettering, white keyline &mdash; for dark backgrounds.</span>
+        </div>
+      </div>
+      <div class="variant-card">
+        <div class="variant-stage on-light"><img src="brand-designer/comicaa-wordmark-ink.svg" alt="Ink wordmark"></div>
+        <div class="variant-meta">
+          <span class="origin">Derived</span>
+          <span class="file"><a href="brand-designer/comicaa-wordmark-ink.svg">comicaa-wordmark-ink.svg</a></span>
+          <span class="desc">No keyline. For small sizes and single-colour work on a light or coloured surface.</span>
+        </div>
+      </div>
+      <div class="variant-card">
+        <div class="variant-stage on-dark"><img src="brand-designer/comicaa-wordmark-white.svg" alt="White wordmark"></div>
+        <div class="variant-meta">
+          <span class="origin">Derived</span>
+          <span class="file"><a href="brand-designer/comicaa-wordmark-white.svg">comicaa-wordmark-white.svg</a></span>
+          <span class="desc">No keyline, reversed. For dark backgrounds where the full lockup is too fine or too busy.</span>
+        </div>
+      </div>
+      <div class="variant-card">
+        <div class="variant-stage on-dark"><img src="brand-designer/comicaa-wordmark-grey.svg" alt="Grey wordmark"></div>
+        <div class="variant-meta">
+          <span class="origin">Derived</span>
+          <span class="file"><a href="brand-designer/comicaa-wordmark-grey.svg">comicaa-wordmark-grey.svg</a></span>
+          <span class="desc">No keyline, muted (#918F90). Low-emphasis placements &mdash; a footer credit, a watermark. Use on dark grounds; on light it goes faint.</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="slots">
+        <thead><tr><th>Original guide file</th><th>This set</th><th>How the slot maps</th></tr></thead>
+        <tbody>
+          <tr><td><code>comicaa-logo-badge.svg</code></td><td><code>comicaa-logo-primary.svg</code></td><td class="why">The default full-colour mark.</td></tr>
+          <tr><td><code>comicaa-logo-flat.svg</code></td><td><code>comicaa-logo-reversed.svg</code></td><td class="why">Closest role: the second lockup. The designer's mark isn't tilted, so there is no separate "flat" &mdash; this slot carries the dark-background version instead.</td></tr>
+          <tr><td><code>comicaa-wordmark-ink.svg</code></td><td><code>comicaa-wordmark-ink.svg</code></td><td class="why">Same name, same role.</td></tr>
+          <tr><td><code>comicaa-wordmark-white.svg</code></td><td><code>comicaa-wordmark-white.svg</code></td><td class="why">Same name, same role.</td></tr>
+          <tr><td><code>comicaa-wordmark-grey.svg</code></td><td><code>comicaa-wordmark-grey.svg</code></td><td class="why">Same name, same role.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ================= DO / DONT ================= -->
+  <div class="section">
+    <span class="section-label">06 &middot; usage</span>
+    <h2>Do &amp; don't</h2>
+    <div class="dodont">
+      <div class="dodont-col do">
+        <h3>Do</h3>
+        <ul>
+          <li>Use the primary on light and mid-tone grounds, the reversed on dark ones.</li>
+          <li>Use the SVGs as delivered, at any size &mdash; they're vector.</li>
+          <li>Keep clear space of at least half the lockup's height on every side.</li>
+          <li>Switch to an ink or white wordmark where the keyline would get too fine.</li>
+          <li>Keep the speech-bubble O and the dotted i exactly as drawn.</li>
+        </ul>
+      </div>
+      <div class="dodont-col dont">
+        <h3>Don't</h3>
+        <ul>
+          <li>Recolour the keyline and lettering independently, or swap the two colours.</li>
+          <li>Put the primary on yellow or a busy photo &mdash; the keyline disappears. Don't put the reversed on light.</li>
+          <li>Add strokes, shadows, glows or bevels &mdash; the keyline is the outline.</li>
+          <li>Rotate, skew or stretch it; the slant is already in the lettering.</li>
+          <li>Retype or redraw the wordmark in a font.</li>
+          <li>Use the grey wordmark as the primary mark.</li>
+          <li>Go below 160px wide (lockup) or 96px wide (wordmark only).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= OPEN ITEMS ================= -->
+  <div class="section">
+    <span class="section-label">07 &middot; open items</span>
+    <h2>For the designer to confirm</h2>
+    <ul class="open-items">
+      <li><span class="tag">Sign-off</span><span>The three wordmark files (ink, white, grey) were derived from the delivered lettering layer, not drawn by the designer. They need a look before being treated as official.</span></li>
+      <li><span class="tag">Missing</span><span>A square icon mark. The lockup is ~4:1, so app icons, favicons and avatars have nothing suitable to use yet &mdash; a monogram, such as the lead C, would fill that gap.</span></li>
+      <li><span class="tag">Missing</span><span>Print colour specs. The files carry RGB hex values only &mdash; no CMYK or spot-colour references.</span></li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>

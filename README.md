@@ -21,7 +21,7 @@ Most comic readers either need a native app install or ask you to upload your fi
 
 A single `index.html` file with all the HTML, CSS, and JavaScript, plus a handful of vendored dependencies (JSZip for `.cbz`, `unrar` compiled to WebAssembly for `.cbr`, ONNX Runtime Web for Guided View's panel-detection model) — no build step, no framework, no bundler. `editor.html` is a second, equally self-contained page that shares the archive-reading and panel-detection code (`archive-extract.js`, `panel-detection.js`) with the reader instead of duplicating it.
 
-See [`docs/architecture.html`](docs/architecture.html) for an illustrated breakdown of how it all fits together, from opening a file to how Guided View finds panels, and [`docs/brand.html`](docs/brand.html) for the logo spec — colors, typography, clear space, and the vector source files.
+See [`docs/architecture.html`](docs/architecture.html) for an illustrated breakdown of how it all fits together, from opening a file to how Guided View finds panels, and [`docs/brand.html`](docs/brand.html) for the logo spec — colors, typography, clear space, and the vector source files. The designer-drawn logo set has its own spec in [`docs/brand-designer.html`](docs/brand-designer.html).
 
 ## License
 
