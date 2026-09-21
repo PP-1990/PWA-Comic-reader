@@ -193,10 +193,11 @@
         box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
 
-    /* The Comicaa wordmark: the actual logo file from docs/brand/ (see
-       docs/brand.html for the full spec) — real vector letterforms, not
-       styled text, so it renders identically with zero font-loading and
-       zero network dependency. */
+    /* The Comicaa logo: the designer's reversed lockup (yellow lettering,
+       white keyline) for this dark bar — see docs/brand-designer.html for
+       the full spec. Real vector artwork, so no font-loading and no
+       network dependency. 40px tall is ~160px wide, the spec's minimum
+       for the full lockup (below that the keyline drops under a pixel). */
     .logo-badge {
         display: block;
         height: 40px;
@@ -850,7 +851,7 @@
          which maps to the built-in public.zip-archive type and shows fine).
          Listing MIME types too, plus a generic octet-stream fallback, gets
          iOS to recognize and show them without the user renaming the file. -->
-    <img class="logo-badge" src="docs/brand/comicaa-logo-badge.svg" alt="Comicaa">
+    <img class="logo-badge" src="docs/brand-designer/comicaa-logo-reversed.svg" alt="Comicaa">
     <input
         type="file"
         id="fileInput"

@@ -6,7 +6,7 @@
 <title>Comicaa Architecture</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bangers&family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --backdrop: #0a0a0a;
@@ -65,20 +65,14 @@
 
   .masthead-left { display: flex; flex-direction: column; gap: 6px; max-width: 68%; min-width: 0; }
 
-  .badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+  /* The designer's reversed lockup (see docs/brand-designer.html). Scales
+     with the slide like the type does; ~40px tall (=160px wide, the
+     spec's minimum) at the slide's full width. */
+  .logo {
+    display: block;
     align-self: flex-start;
-    background: var(--gold);
-    color: #1a1408;
-    font-family: "Bangers", "Barlow Condensed", cursive;
-    letter-spacing: 0.06em;
-    font-size: clamp(13px, 1.5vw, 17px);
-    padding: 3px 12px 5px;
-    border-radius: 3px;
-    border: 2px solid var(--ink);
-    transform: rotate(-1.4deg);
+    height: clamp(28px, 2.9vw, 40px);
+    width: auto;
   }
 
   h1 {
@@ -290,7 +284,7 @@
 
   <div class="masthead">
     <div class="masthead-left">
-      <span class="badge">COMICAA</span>
+      <img class="logo" src="brand-designer/comicaa-logo-reversed.svg" alt="Comicaa">
       <h1>Built to run entirely in your browser</h1>
       <p class="subtitle">A single HTML file reads .cbz and .cbr comics, and now finds their panels with an on-device machine-learning model — no backend, no accounts, no uploads, at any step.</p>
     </div>
