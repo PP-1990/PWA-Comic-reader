@@ -174,14 +174,17 @@
     }
 
     /* The dark bar fixed at the very top of the page, containing the
-       "Choose File" button and the small status text next to it (e.g.
-       "12 pages loaded"). The radial-gradient dot pattern is a classic
-       print-comic "halftone" texture faked with pure CSS (no image file
-       needed), and the thick black bottom border reads like a comic
-       panel edge. */
+       Comicaa logo, "Choose File" button, and the small status text next
+       to it (e.g. "12 pages loaded"). The radial-gradient dot pattern is
+       a classic print-comic "halftone" texture faked with pure CSS (no
+       image file needed), and the thick black bottom border reads like a
+       comic panel edge.
+       56px (up from a plain 44px) gives the 40px-tall logo 8px of clear
+       space above and below instead of being nearly flush with the bar's
+       edges. */
     #controls {
         flex-shrink: 0;
-        height: 44px;
+        height: 56px;
         display: flex;
         align-items: center;
         z-index: 100;
@@ -742,16 +745,16 @@
             font-size: 12px;
         }
 
-        /* The file picker (which the browser renders and sizes itself —
-           its "No file chosen" text alone is often 150-250px) plus the
-           status text plus the ACBF Editor link no longer all fit on one
-           44px-tall row at phone widths. Letting the bar wrap (and grow
-           past 44px to fit however many lines that takes) keeps every
+        /* The logo, file picker (which the browser renders and sizes
+           itself — its "No file chosen" text alone is often 150-250px),
+           status text, and the ACBF Editor link no longer all fit on one
+           56px-tall row at phone widths. Letting the bar wrap (and grow
+           past 56px to fit however many lines that takes) keeps every
            control fully on screen instead of the editor link running off
            the right edge — the actual bug being fixed here. */
         #controls {
             height: auto;
-            min-height: 44px;
+            min-height: 56px;
             flex-wrap: wrap;
             row-gap: 4px;
             padding: 8px 12px;
