@@ -304,15 +304,15 @@
     /* ========================================================================
        PREVIEW MODE
        Plays back the CURRENT page's panels — including whatever's still
-       unsaved — as the same pan-and-zoom sequence Guided View uses in the
-       reader, so a publisher can check reading order and framing without
-       leaving the editor or exporting anything first. The transform math
+       unsaved — as the same cinematic pan-and-zoom-with-spotlight Guided
+       View uses in the reader (the mask stays fixed to "cinematic"; it's
+       not a switchable transition-style picker like the reader's own
+       setup dialog — that choice belongs to the reader, this is about
+       checking order and framing). The transform math
        (applyPreviewTransform/capturePreviewNaturalBox/framePreviewRect in
-       the <script> below) is ported from index.html's Guided View —
-       same approach, adapted to an <img> here instead of the reader's
-       <canvas>, and with no cinematic spotlight mask: checking order and
-       framing is the point here, and the reader is where transition
-       styles actually get picked and tried.
+       the <script> below) is ported from index.html's Guided View, and
+       the spotlight itself from index.html's updateCinematicMask() — same
+       approach, adapted to an <img> here instead of the reader's <canvas>.
 
        This is a full-screen takeover rather than a small popup box docked
        beside the editing canvas ON PURPOSE: at phone widths there's no
@@ -355,6 +355,26 @@
         border-radius: 4px;
         box-shadow: 0 4px 10px rgba(0,0,0,0.6);
         transform-origin: 0 0;
+        transition: transform 450ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Cinematic mode's spotlight, ported from index.html's #cinematicMask
+       — see updatePreviewCinematicMask() in the <script>. An SVG <mask>
+       so it follows the panel's real polygon outline, not just a
+       rectangle around it. Positioned/sized once per open (or resize) to
+       exactly overlay #previewImg's own natural box (see
+       capturePreviewNaturalBox()), then given the EXACT SAME `transform`
+       #previewImg gets on every step (applyPreviewTransform()) — so it
+       rides along automatically instead of needing its own per-step
+       coordinate math. z-index sits below the nav buttons/close/counter
+       (5) so those stay usable, above the image itself (default stacking
+       order). pointer-events:none so it never blocks the tap-to-advance
+       zones. */
+    #previewCinematicMask {
+        position: absolute;
+        transform-origin: 0 0;
+        pointer-events: none;
+        z-index: 2;
         transition: transform 450ms cubic-bezier(0.4, 0, 0.2, 1);
     }
 
@@ -878,6 +898,16 @@
 <div id="previewOverlay" hidden>
     <div id="previewStage">
         <img id="previewImg" alt="Page preview">
+        <svg id="previewCinematicMask" hidden>
+            <defs>
+                <mask id="previewCinematicMaskDef">
+                    <rect id="previewCinematicMaskBg" x="0" y="0" width="0" height="0" fill="white"/>
+                    <polygon id="previewCinematicMaskHole" points="" fill="black"/>
+                </mask>
+            </defs>
+            <rect id="previewCinematicMaskFillRect" x="0" y="0" width="0" height="0" fill="rgba(12,12,12,0.96)" mask="url(#previewCinematicMaskDef)"/>
+            <polygon id="previewCinematicMaskGlow" points="" fill="none" stroke="#ffd54f" stroke-width="3" stroke-opacity="0.5" vector-effect="non-scaling-stroke"/>
+        </svg>
     </div>
     <button id="previewCloseBtn" aria-label="Close preview">&times;</button>
     <div id="previewCounter"></div>
@@ -1010,19 +1040,35 @@ window.addEventListener("resize", () => {
 // See the big comment on #previewOverlay in the <style> above for what
 // this is and why it's a full-screen takeover. The transform math below
 // (applyPreviewTransform/capturePreviewNaturalBox/framePreviewRect) is
-// index.html's frameRect()/applyGuidedTransform()/captureNaturalBox(),
-// ported to an <img> instead of the reader's <canvas> — same approach,
-// same math, no cinematic spotlight mask (not needed here: checking
-// order/framing is the point, not trying every transition style).
+// index.html's frameRect()/applyGuidedTransform()/captureNaturalBox(), and
+// the cinematic spotlight is index.html's updateCinematicMask() — same
+// SVG <mask> approach, so the spotlight follows a panel's real polygon
+// outline, not just a rectangle around it.
 // ============================================================================
 const previewOverlay = document.getElementById("previewOverlay");
 const previewStage = document.getElementById("previewStage");
 const previewImg = document.getElementById("previewImg");
+const previewCinematicMask = document.getElementById("previewCinematicMask");
+const previewCinematicMaskBg = document.getElementById("previewCinematicMaskBg");
+const previewCinematicMaskHole = document.getElementById("previewCinematicMaskHole");
+const previewCinematicMaskFillRect = document.getElementById("previewCinematicMaskFillRect");
+const previewCinematicMaskGlow = document.getElementById("previewCinematicMaskGlow");
 const previewBtn = document.getElementById("previewBtn");
 const previewCloseBtn = document.getElementById("previewCloseBtn");
 const previewPrevBtn = document.getElementById("previewPrevBtn");
 const previewNextBtn = document.getElementById("previewNextBtn");
 const previewCounter = document.getElementById("previewCounter");
+
+// Plain `element.hidden = bool` doesn't reliably work for an <svg> ROOT
+// element specifically (observed in index.html too — see its own copy of
+// this same helper): the IDL property updates its own reflection but not
+// the underlying `hidden` content attribute, so a global [hidden]{display:
+// none!important} rule keeps matching. Setting the attribute directly
+// works for every element type, SVG root included.
+function setElementHidden(el, isHidden) {
+    if (isHidden) el.setAttribute("hidden", "");
+    else el.removeAttribute("hidden");
+}
 
 const PREVIEW_FIT_MARGIN = 0.92; // shrink slightly so a panel's edges aren't flush against the screen edge
 
@@ -1033,7 +1079,15 @@ let previewTranslateY = 0;
 let previewScale = 1;
 
 function applyPreviewTransform() {
-    previewImg.style.transform = `translate(${previewTranslateX}px, ${previewTranslateY}px) scale(${previewScale})`;
+    const transform = `translate(${previewTranslateX}px, ${previewTranslateY}px) scale(${previewScale})`;
+    previewImg.style.transform = transform;
+    // previewCinematicMask is kept positioned to exactly overlay previewImg's
+    // own natural box (see capturePreviewNaturalBox()) with the identical
+    // transform origin, so giving it this exact same transform on every
+    // step is what keeps its spotlight glued to the page with zero extra
+    // per-step coordinate math — see updateCinematicMask() in index.html
+    // for the fuller version of this same comment.
+    previewCinematicMask.style.transform = transform;
 }
 
 // Measures previewImg's natural (untransformed) on-screen box and caches
@@ -1053,6 +1107,18 @@ function capturePreviewNaturalBox() {
     previewImg.style.transform = previousTransform;
     void previewImg.offsetHeight;
     previewImg.style.transition = previousTransition;
+
+    // Keeps previewCinematicMask's base (untransformed) position/size
+    // exactly matching previewImg's own — see applyPreviewTransform() for
+    // why that means giving both the same `transform` afterward is enough
+    // to keep the mask glued to the page. Position is expressed relative
+    // to #previewStage (the mask's own positioned ancestor), since
+    // previewNaturalBox above is in viewport coordinates.
+    const stageBox = previewStage.getBoundingClientRect();
+    previewCinematicMask.style.left = (previewNaturalBox.left - stageBox.left) + "px";
+    previewCinematicMask.style.top = (previewNaturalBox.top - stageBox.top) + "px";
+    previewCinematicMask.style.width = previewNaturalBox.width + "px";
+    previewCinematicMask.style.height = previewNaturalBox.height + "px";
 }
 
 // Scales and shifts previewImg via a CSS `transform` so the given
@@ -1080,6 +1146,36 @@ function framePreviewRect(rectX, rectY, rectWidth, rectHeight) {
     applyPreviewTransform();
 }
 
+// Shapes previewCinematicMask's "hole" to the given panel's own actual
+// polygon outline — or hides the whole mask when there's no single panel
+// to spotlight (the empty-page case). Position/scale are handled entirely
+// elsewhere (capturePreviewNaturalBox() + applyPreviewTransform()); all
+// that's left here is the SHAPE, expressed directly in the page's own
+// full-resolution pixel space (previewImg's natural width/height) — the
+// same coordinate space panel.points already use, so no conversion is
+// needed. Every editor panel already has real polygon points (boxToPolygon()
+// gives even a freshly-detected rectangle its 4 corners up front), unlike
+// the reader, which also has to handle box-only panels with no points at
+// all — so there's no boxCorners()-style fallback needed here.
+function updatePreviewCinematicMask(panel) {
+    if (!panel) {
+        setElementHidden(previewCinematicMask, true);
+        return;
+    }
+
+    const pointsAttr = panel.points.map(p => p.x + "," + p.y).join(" ");
+    previewCinematicMaskHole.setAttribute("points", pointsAttr);
+    previewCinematicMaskGlow.setAttribute("points", pointsAttr);
+
+    previewCinematicMask.setAttribute("viewBox", `0 0 ${previewImg.naturalWidth} ${previewImg.naturalHeight}`);
+    previewCinematicMaskBg.setAttribute("width", previewImg.naturalWidth);
+    previewCinematicMaskBg.setAttribute("height", previewImg.naturalHeight);
+    previewCinematicMaskFillRect.setAttribute("width", previewImg.naturalWidth);
+    previewCinematicMaskFillRect.setAttribute("height", previewImg.naturalHeight);
+
+    setElementHidden(previewCinematicMask, false);
+}
+
 // Frames the panel at `index` (clamped). `instant` skips the CSS
 // transition — used for the very first frame after opening, the same way
 // showGuidedPanel(0, true) does in the reader, so it doesn't visibly pan
@@ -1094,20 +1190,26 @@ function showPreviewPanel(index, instant) {
             // rather than refusing to open Preview at all.
             framePreviewRect(0, 0, page.naturalWidth, page.naturalHeight);
             previewCounter.textContent = "Whole page — no panels yet";
+            updatePreviewCinematicMask(null);
         } else {
             previewPanelIndex = Math.max(0, Math.min(index, panels.length - 1));
-            const box = polygonBounds(panels[previewPanelIndex].points);
+            const panel = panels[previewPanelIndex];
+            const box = polygonBounds(panel.points);
             framePreviewRect(box.x, box.y, box.width, box.height);
             previewCounter.textContent = (previewPanelIndex + 1) + " / " + panels.length;
+            updatePreviewCinematicMask(panel);
         }
     };
 
     if (instant) {
         const previousTransition = previewImg.style.transition;
+        const previousMaskTransition = previewCinematicMask.style.transition;
         previewImg.style.transition = "none";
+        previewCinematicMask.style.transition = "none";
         frame();
         void previewImg.offsetHeight;
         previewImg.style.transition = previousTransition;
+        previewCinematicMask.style.transition = previousMaskTransition;
     } else {
         frame();
     }
@@ -1150,6 +1252,9 @@ function openPreview() {
 function closePreview() {
     previewOverlay.hidden = true;
     document.body.style.overflow = "";
+    previewImg.style.transform = "";
+    previewCinematicMask.style.transform = "";
+    setElementHidden(previewCinematicMask, true);
 }
 
 previewBtn.addEventListener("click", openPreview);
