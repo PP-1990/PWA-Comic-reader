@@ -263,10 +263,22 @@
         font-weight: bold;
     }
 
-    #navDivider {
+    .nav-divider {
         width: 1px;
         height: 18px;
         background: #444;
+    }
+
+    /* Compact icon button matching #zoomControls button's own size/shape,
+       so "Preview" reads as one more view control next to zoom rather
+       than a wide, separately-styled action — important at phone widths
+       where #pageNav is already tight. */
+    #previewBtn {
+        width: 26px;
+        height: 26px;
+        padding: 0;
+        border-radius: 50%;
+        font-size: 11px;
     }
 
     #zoomControls {
@@ -287,6 +299,136 @@
         min-width: 40px;
         text-align: center;
         cursor: pointer;
+    }
+
+    /* ========================================================================
+       PREVIEW MODE
+       Plays back the CURRENT page's panels — including whatever's still
+       unsaved — as the same pan-and-zoom sequence Guided View uses in the
+       reader, so a publisher can check reading order and framing without
+       leaving the editor or exporting anything first. The transform math
+       (applyPreviewTransform/capturePreviewNaturalBox/framePreviewRect in
+       the <script> below) is ported from index.html's Guided View —
+       same approach, adapted to an <img> here instead of the reader's
+       <canvas>, and with no cinematic spotlight mask: checking order and
+       framing is the point here, and the reader is where transition
+       styles actually get picked and tried.
+
+       This is a full-screen takeover rather than a small popup box docked
+       beside the editing canvas ON PURPOSE: at phone widths there's no
+       room for a preview box and the panel-editing canvas to both be
+       usable at once, so a full-screen toggle (Preview <-> back to
+       editing) is the one layout that behaves the same way on mobile and
+       desktop, instead of building and maintaining two different preview
+       UIs.
+       ======================================================================== */
+    #previewOverlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background-color: #0a0a0a;
+        background-image: radial-gradient(circle, rgba(255,255,255,0.05) 1px, transparent 1.5px);
+        background-size: 8px 8px;
+        overflow: hidden;
+    }
+
+    /* Same flex-column + stretch pattern as the reader's #mainView, so
+       #previewImg's width:100%/height:auto behaves exactly like the
+       reader's .page-image — see framePreviewRect()'s own comment for why
+       that equivalence matters. */
+    #previewStage {
+        position: absolute;
+        inset: 0;
+        padding: 8px;
+        display: flex;
+        flex-direction: column;
+        align-items: stretch;
+        justify-content: flex-start;
+        overflow: hidden;
+    }
+
+    #previewImg {
+        width: 100%;
+        height: auto;
+        display: block;
+        margin: 0 auto;
+        border-radius: 4px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.6);
+        transform-origin: 0 0;
+        transition: transform 450ms cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .preview-nav-btn {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        border: 1px solid #444;
+        background: rgba(0,0,0,0.55);
+        color: #ffd54f;
+        font-size: 22px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 5;
+    }
+    .preview-nav-btn:hover { background: rgba(0,0,0,0.75); }
+    .preview-nav-btn:disabled { opacity: 0.25; cursor: default; }
+    #previewPrevBtn { left: 16px; }
+    #previewNextBtn { right: 16px; }
+
+    #previewCloseBtn {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        border-radius: 50%;
+        border: 1px solid #444;
+        background: rgba(0,0,0,0.55);
+        color: #ffd54f;
+        font-size: 18px;
+        line-height: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 5;
+    }
+    #previewCloseBtn:hover { background: rgba(0,0,0,0.75); }
+
+    #previewCounter {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        font-size: 13px;
+        font-weight: bold;
+        color: #ffd54f;
+        background: rgba(0,0,0,0.55);
+        border: 1px solid #444;
+        border-radius: 4px;
+        padding: 4px 10px;
+        z-index: 5;
+    }
+
+    #previewHint {
+        position: absolute;
+        bottom: 16px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 11px;
+        color: #aaa;
+        background: rgba(0,0,0,0.55);
+        border: 1px solid #444;
+        border-radius: 4px;
+        padding: 4px 10px;
+        white-space: nowrap;
+        z-index: 5;
     }
 
     #canvasScroll {
@@ -643,6 +785,20 @@
             max-height: 40px;
             padding: 10px;
         }
+
+        /* The keyboard hint is meaningless on a touchscreen, and the
+           nav-btns come in a bit smaller/closer to the edges so they
+           don't eat into the already-tight page width. */
+        #previewHint {
+            display: none;
+        }
+        .preview-nav-btn {
+            width: 40px;
+            height: 40px;
+            font-size: 18px;
+        }
+        #previewPrevBtn { left: 8px; }
+        #previewNextBtn { right: 8px; }
     }
 </style>
 </head>
@@ -677,12 +833,14 @@
             <button class="secondary small" id="prevPageBtn">&#8249; Prev</button>
             <span id="pageIndicator">1 / 1</span>
             <button class="secondary small" id="nextPageBtn">Next &#8250;</button>
-            <div id="navDivider"></div>
+            <div class="nav-divider"></div>
             <div id="zoomControls">
                 <button class="secondary" id="zoomOutBtn" aria-label="Zoom out">&#8722;</button>
                 <span id="zoomLevelLabel" title="Click to reset zoom">100%</span>
                 <button class="secondary" id="zoomInBtn" aria-label="Zoom in">&#43;</button>
             </div>
+            <div class="nav-divider"></div>
+            <button id="previewBtn" aria-label="Preview panel order" title="Preview how these panels play back in Guided View">&#9654;</button>
         </div>
         <div id="canvasScroll" hidden>
             <div id="canvasWrap">
@@ -712,6 +870,20 @@
 <div id="exportBar" hidden>
     <button id="exportAcbfBtn">Export .acbf</button>
     <button id="exportCbzBtn">Export CBZ + ACBF</button>
+</div>
+
+<!-- Full-screen "how do these panels actually play back" preview — see
+     the big comment above its styles for why this is a full-screen
+     takeover rather than a small popup box docked next to the canvas. -->
+<div id="previewOverlay" hidden>
+    <div id="previewStage">
+        <img id="previewImg" alt="Page preview">
+    </div>
+    <button id="previewCloseBtn" aria-label="Close preview">&times;</button>
+    <div id="previewCounter"></div>
+    <button id="previewPrevBtn" class="preview-nav-btn" aria-label="Previous panel">&#8249;</button>
+    <button id="previewNextBtn" class="preview-nav-btn" aria-label="Next panel">&#8250;</button>
+    <div id="previewHint">&#8592; &#8594; to step through panels &nbsp;&middot;&nbsp; Esc to close</div>
 </div>
 
 <script>
@@ -831,6 +1003,178 @@ zoomLevelLabel.addEventListener("click", resetEditorZoom);
 // re-measure and re-apply so the canvas/overlay stay correctly sized.
 window.addEventListener("resize", () => {
     if (pages.length > 0) applyEditorZoom();
+});
+
+// ============================================================================
+// PREVIEW MODE
+// See the big comment on #previewOverlay in the <style> above for what
+// this is and why it's a full-screen takeover. The transform math below
+// (applyPreviewTransform/capturePreviewNaturalBox/framePreviewRect) is
+// index.html's frameRect()/applyGuidedTransform()/captureNaturalBox(),
+// ported to an <img> instead of the reader's <canvas> — same approach,
+// same math, no cinematic spotlight mask (not needed here: checking
+// order/framing is the point, not trying every transition style).
+// ============================================================================
+const previewOverlay = document.getElementById("previewOverlay");
+const previewStage = document.getElementById("previewStage");
+const previewImg = document.getElementById("previewImg");
+const previewBtn = document.getElementById("previewBtn");
+const previewCloseBtn = document.getElementById("previewCloseBtn");
+const previewPrevBtn = document.getElementById("previewPrevBtn");
+const previewNextBtn = document.getElementById("previewNextBtn");
+const previewCounter = document.getElementById("previewCounter");
+
+const PREVIEW_FIT_MARGIN = 0.92; // shrink slightly so a panel's edges aren't flush against the screen edge
+
+let previewPanelIndex = 0;
+let previewNaturalBox = null;
+let previewTranslateX = 0;
+let previewTranslateY = 0;
+let previewScale = 1;
+
+function applyPreviewTransform() {
+    previewImg.style.transform = `translate(${previewTranslateX}px, ${previewTranslateY}px) scale(${previewScale})`;
+}
+
+// Measures previewImg's natural (untransformed) on-screen box and caches
+// it for framePreviewRect() to use — same "swap transform to none, force
+// layout, measure, swap back" approach as the reader's
+// captureNaturalBox(), and for the same reason: calling this mid-
+// transition would make the browser treat "none" as a real completed
+// state, so the next transition would visibly animate from the whole
+// untransformed page instead of from wherever it actually was.
+function capturePreviewNaturalBox() {
+    const previousTransition = previewImg.style.transition;
+    const previousTransform = previewImg.style.transform;
+    previewImg.style.transition = "none";
+    previewImg.style.transform = "none";
+    void previewImg.offsetHeight;
+    previewNaturalBox = previewImg.getBoundingClientRect();
+    previewImg.style.transform = previousTransform;
+    void previewImg.offsetHeight;
+    previewImg.style.transition = previousTransition;
+}
+
+// Scales and shifts previewImg via a CSS `transform` so the given
+// rectangle (in the page's own full-resolution pixel coordinates, same
+// space panel.points already use) fills as much of #previewStage as
+// possible, centered. See index.html's frameRect() — this is that same
+// function with pageCanvas/mainView swapped for previewImg/previewStage,
+// and .width/.height (a canvas's intrinsic pixel size) swapped for
+// .naturalWidth (an img's own equivalent).
+function framePreviewRect(rectX, rectY, rectWidth, rectHeight) {
+    const naturalBox = previewNaturalBox || previewImg.getBoundingClientRect();
+    const stageBox = previewStage.getBoundingClientRect();
+    const naturalScale = naturalBox.width / previewImg.naturalWidth;
+    const targetScale = Math.min(stageBox.width / rectWidth, stageBox.height / rectHeight) * PREVIEW_FIT_MARGIN;
+    const transformScale = targetScale / naturalScale;
+
+    const localCenterX = (rectX + rectWidth / 2) * naturalScale;
+    const localCenterY = (rectY + rectHeight / 2) * naturalScale;
+    const targetScreenX = stageBox.left + stageBox.width / 2;
+    const targetScreenY = stageBox.top + stageBox.height / 2;
+
+    previewScale = transformScale;
+    previewTranslateX = targetScreenX - naturalBox.left - transformScale * localCenterX;
+    previewTranslateY = targetScreenY - naturalBox.top - transformScale * localCenterY;
+    applyPreviewTransform();
+}
+
+// Frames the panel at `index` (clamped). `instant` skips the CSS
+// transition — used for the very first frame after opening, the same way
+// showGuidedPanel(0, true) does in the reader, so it doesn't visibly pan
+// in from the whole page on open.
+function showPreviewPanel(index, instant) {
+    const page = pages[currentPageIndex];
+    const panels = (page && page.panels) || [];
+
+    const frame = () => {
+        if (panels.length === 0) {
+            // Nothing drawn yet on this page — just show it edge to edge
+            // rather than refusing to open Preview at all.
+            framePreviewRect(0, 0, page.naturalWidth, page.naturalHeight);
+            previewCounter.textContent = "Whole page — no panels yet";
+        } else {
+            previewPanelIndex = Math.max(0, Math.min(index, panels.length - 1));
+            const box = polygonBounds(panels[previewPanelIndex].points);
+            framePreviewRect(box.x, box.y, box.width, box.height);
+            previewCounter.textContent = (previewPanelIndex + 1) + " / " + panels.length;
+        }
+    };
+
+    if (instant) {
+        const previousTransition = previewImg.style.transition;
+        previewImg.style.transition = "none";
+        frame();
+        void previewImg.offsetHeight;
+        previewImg.style.transition = previousTransition;
+    } else {
+        frame();
+    }
+
+    previewPrevBtn.disabled = panels.length === 0 || previewPanelIndex === 0;
+    previewNextBtn.disabled = panels.length === 0 || previewPanelIndex === panels.length - 1;
+}
+
+function stepPreviewPanel(delta) {
+    showPreviewPanel(previewPanelIndex + delta);
+}
+
+// Opens on whichever page is currently showing in the editor, reading
+// straight from `pages[currentPageIndex].panels` — including drags,
+// reorders, or deletes made just now and never exported — so what's
+// previewed always matches what Export would produce right now.
+function openPreview() {
+    const page = pages[currentPageIndex];
+    if (!page) return;
+
+    previewOverlay.hidden = false;
+    document.body.style.overflow = "hidden"; // the editing canvas behind shouldn't scroll while this is up
+
+    const start = () => {
+        previewPanelIndex = 0;
+        requestAnimationFrame(() => {
+            capturePreviewNaturalBox();
+            showPreviewPanel(0, true);
+        });
+    };
+
+    if (previewImg.src === page.blobUrl && previewImg.complete) {
+        start();
+    } else {
+        previewImg.onload = start;
+        previewImg.src = page.blobUrl;
+    }
+}
+
+function closePreview() {
+    previewOverlay.hidden = true;
+    document.body.style.overflow = "";
+}
+
+previewBtn.addEventListener("click", openPreview);
+previewCloseBtn.addEventListener("click", closePreview);
+previewPrevBtn.addEventListener("click", () => stepPreviewPanel(-1));
+previewNextBtn.addEventListener("click", () => stepPreviewPanel(1));
+
+document.addEventListener("keydown", (e) => {
+    if (previewOverlay.hidden) return;
+    if (e.key === "Escape") {
+        closePreview();
+    } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        stepPreviewPanel(1);
+    } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        stepPreviewPanel(-1);
+    }
+});
+
+window.addEventListener("resize", () => {
+    if (!previewOverlay.hidden) {
+        capturePreviewNaturalBox();
+        showPreviewPanel(previewPanelIndex, true);
+    }
 });
 
 // ============================================================================
