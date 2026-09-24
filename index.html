@@ -908,13 +908,23 @@
              area the exact same way it already clips pageCanvas itself. -->
         <svg id="cinematicMask" hidden>
             <defs>
+                <!-- Softens cinematicMaskHole's edge into a gradient instead of
+                     a hard cutout — see updateCinematicMask()'s own comment for
+                     why stdDeviation is set dynamically instead of being a
+                     fixed number here. The oversized x/y/width/height (default
+                     is -10%/-10%/120%/120%) keeps the blur from getting
+                     clipped at the filter's own region, which the default
+                     margin is too tight for once stdDeviation gets any real
+                     size. -->
+                <filter id="cinematicMaskBlur" x="-60%" y="-60%" width="220%" height="220%">
+                    <feGaussianBlur id="cinematicMaskBlurAmount" stdDeviation="0"/>
+                </filter>
                 <mask id="cinematicMaskDef">
                     <rect id="cinematicMaskBg" x="0" y="0" width="0" height="0" fill="white"/>
-                    <polygon id="cinematicMaskHole" points="" fill="black"/>
+                    <polygon id="cinematicMaskHole" points="" fill="black" filter="url(#cinematicMaskBlur)"/>
                 </mask>
             </defs>
             <rect id="cinematicMaskFillRect" x="0" y="0" width="0" height="0" fill="rgba(12,12,12,0.96)" mask="url(#cinematicMaskDef)"/>
-            <polygon id="cinematicMaskGlow" points="" fill="none" stroke="#ffd54f" stroke-width="3" stroke-opacity="0.5" vector-effect="non-scaling-stroke"/>
         </svg>
         <div id="zoomControls" hidden>
             <button id="guidedViewBtn" aria-label="Toggle Guided View" title="Guided View: scan the page at your chosen zoom">&#9638;</button>
@@ -1003,7 +1013,7 @@ const cinematicMask = document.getElementById("cinematicMask");
 const cinematicMaskBg = document.getElementById("cinematicMaskBg");
 const cinematicMaskHole = document.getElementById("cinematicMaskHole");
 const cinematicMaskFillRect = document.getElementById("cinematicMaskFillRect");
-const cinematicMaskGlow = document.getElementById("cinematicMaskGlow");
+const cinematicMaskBlurAmount = document.getElementById("cinematicMaskBlurAmount");
 const guidedSetupHint = document.getElementById("guidedSetupHint");
 const guidedSetupCancelBtn = document.getElementById("guidedSetupCancelBtn");
 const guidedSetupStartBtn = document.getElementById("guidedSetupStartBtn");
@@ -1286,6 +1296,15 @@ function captureNaturalBox() {
 
 const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a panel's edges aren't flush against the screen edge
 
+// How soft cinematicMaskHole's edge is, as a fraction of the PAGE's own
+// natural width — not a fixed pixel count, since this mask gets drawn in
+// the page's own full-resolution coordinate space (see updateCinematicMask())
+// and that resolution varies a lot page to page/comic to comic. Expressing
+// it as a ratio keeps the blur reading as "about the same softness" at any
+// resolution, the same reasoning MIN_PANEL_SIZE-style pixel constants
+// elsewhere in this app don't need (those work in already-normalized space).
+const CINEMATIC_MASK_BLUR_RATIO = 0.012;
+
 // Scales and shifts the page — via a CSS `transform`, not by resizing it
 // or scrolling #mainView — so that the given rectangle (in the page's
 // full-resolution pixel coordinates) fills as much of the viewport as
@@ -1336,6 +1355,12 @@ function boxCorners(panel) {
 // directly in the page's own full-resolution pixel space (pageCanvas's
 // width/height) — the same coordinate space panel points already use, so
 // they're usable as-is with no conversion.
+// The hole's edge is blurred (cinematicMaskBlurAmount, a <feGaussianBlur>
+// applied to cinematicMaskHole itself — see the <filter> in the markup)
+// rather than traced with a solid outline, so the spotlight fades into the
+// dimmed area instead of cutting it with a hard edge. stdDeviation is set
+// here rather than being a fixed number on the filter because it has to
+// scale with THIS page's resolution (see CINEMATIC_MASK_BLUR_RATIO).
 // Plain `element.hidden = bool` doesn't reliably work for an <svg> ROOT
 // element specifically — on SVGSVGElement, setting the IDL property
 // updates its OWN reflection but was observed NOT to actually clear the
@@ -1357,7 +1382,7 @@ function updateCinematicMask(panel) {
     const points = (panel.points && panel.points.length >= 3) ? panel.points : boxCorners(panel);
     const pointsAttr = points.map(p => p.x + "," + p.y).join(" ");
     cinematicMaskHole.setAttribute("points", pointsAttr);
-    cinematicMaskGlow.setAttribute("points", pointsAttr);
+    cinematicMaskBlurAmount.setAttribute("stdDeviation", pageCanvas.width * CINEMATIC_MASK_BLUR_RATIO);
 
     cinematicMask.setAttribute("viewBox", `0 0 ${pageCanvas.width} ${pageCanvas.height}`);
     cinematicMaskBg.setAttribute("width", pageCanvas.width);

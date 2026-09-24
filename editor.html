@@ -900,13 +900,20 @@
         <img id="previewImg" alt="Page preview">
         <svg id="previewCinematicMask" hidden>
             <defs>
+                <!-- Softens previewCinematicMaskHole's edge into a gradient
+                     instead of a hard cutout — see updatePreviewCinematicMask()
+                     for why stdDeviation is set dynamically. The oversized
+                     x/y/width/height (default is -10%/-10%/120%/120%) keeps
+                     the blur from getting clipped at the filter's own region. -->
+                <filter id="previewCinematicMaskBlur" x="-60%" y="-60%" width="220%" height="220%">
+                    <feGaussianBlur id="previewCinematicMaskBlurAmount" stdDeviation="0"/>
+                </filter>
                 <mask id="previewCinematicMaskDef">
                     <rect id="previewCinematicMaskBg" x="0" y="0" width="0" height="0" fill="white"/>
-                    <polygon id="previewCinematicMaskHole" points="" fill="black"/>
+                    <polygon id="previewCinematicMaskHole" points="" fill="black" filter="url(#previewCinematicMaskBlur)"/>
                 </mask>
             </defs>
             <rect id="previewCinematicMaskFillRect" x="0" y="0" width="0" height="0" fill="rgba(12,12,12,0.96)" mask="url(#previewCinematicMaskDef)"/>
-            <polygon id="previewCinematicMaskGlow" points="" fill="none" stroke="#ffd54f" stroke-width="3" stroke-opacity="0.5" vector-effect="non-scaling-stroke"/>
         </svg>
     </div>
     <button id="previewCloseBtn" aria-label="Close preview">&times;</button>
@@ -1052,7 +1059,7 @@ const previewCinematicMask = document.getElementById("previewCinematicMask");
 const previewCinematicMaskBg = document.getElementById("previewCinematicMaskBg");
 const previewCinematicMaskHole = document.getElementById("previewCinematicMaskHole");
 const previewCinematicMaskFillRect = document.getElementById("previewCinematicMaskFillRect");
-const previewCinematicMaskGlow = document.getElementById("previewCinematicMaskGlow");
+const previewCinematicMaskBlurAmount = document.getElementById("previewCinematicMaskBlurAmount");
 const previewBtn = document.getElementById("previewBtn");
 const previewCloseBtn = document.getElementById("previewCloseBtn");
 const previewPrevBtn = document.getElementById("previewPrevBtn");
@@ -1071,6 +1078,14 @@ function setElementHidden(el, isHidden) {
 }
 
 const PREVIEW_FIT_MARGIN = 0.92; // shrink slightly so a panel's edges aren't flush against the screen edge
+
+// How soft previewCinematicMaskHole's edge is, as a fraction of the PAGE's
+// own natural width, not a fixed pixel count — matches index.html's
+// CINEMATIC_MASK_BLUR_RATIO (same reasoning: this mask is drawn in the
+// page's own full-resolution coordinate space, and that resolution varies
+// page to page, so a ratio keeps the blur reading as equally soft at any
+// resolution).
+const CINEMATIC_MASK_BLUR_RATIO = 0.012;
 
 let previewPanelIndex = 0;
 let previewNaturalBox = null;
@@ -1157,6 +1172,11 @@ function framePreviewRect(rectX, rectY, rectWidth, rectHeight) {
 // gives even a freshly-detected rectangle its 4 corners up front), unlike
 // the reader, which also has to handle box-only panels with no points at
 // all — so there's no boxCorners()-style fallback needed here.
+// The hole's edge is blurred (previewCinematicMaskBlurAmount, a
+// <feGaussianBlur> applied to previewCinematicMaskHole itself — see the
+// <filter> in the markup) rather than traced with a solid outline, so the
+// spotlight fades into the dimmed area instead of cutting it with a hard
+// edge — matches index.html's updateCinematicMask().
 function updatePreviewCinematicMask(panel) {
     if (!panel) {
         setElementHidden(previewCinematicMask, true);
@@ -1165,7 +1185,7 @@ function updatePreviewCinematicMask(panel) {
 
     const pointsAttr = panel.points.map(p => p.x + "," + p.y).join(" ");
     previewCinematicMaskHole.setAttribute("points", pointsAttr);
-    previewCinematicMaskGlow.setAttribute("points", pointsAttr);
+    previewCinematicMaskBlurAmount.setAttribute("stdDeviation", previewImg.naturalWidth * CINEMATIC_MASK_BLUR_RATIO);
 
     previewCinematicMask.setAttribute("viewBox", `0 0 ${previewImg.naturalWidth} ${previewImg.naturalHeight}`);
     previewCinematicMaskBg.setAttribute("width", previewImg.naturalWidth);
