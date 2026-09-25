@@ -2127,14 +2127,40 @@ function downloadBlob(blob, filename) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Tries to open a native "Save As" dialog so the user can pick exactly
+// where the file goes, via the File System Access API. That API only
+// exists in Chromium browsers on desktop (Chrome/Edge/Opera — Windows,
+// macOS, Linux) and in Chrome on Android; Safari (desktop + iOS) and
+// Firefox never expose it, so on those platforms — and if the picker
+// throws for any reason other than the user cancelling — this quietly
+// falls back to the old direct-download behavior instead.
+async function saveBlob(blob, filename, extension, mimeType, description) {
+    if (window.showSaveFilePicker) {
+        try {
+            const handle = await window.showSaveFilePicker({
+                suggestedName: filename,
+                types: [{ description: description, accept: { [mimeType]: [extension] } }]
+            });
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            return;
+        } catch (err) {
+            if (err.name === "AbortError") return; // user closed the dialog without saving
+            writeLog("Save dialog unavailable, falling back to direct download: " + err.message);
+        }
+    }
+    downloadBlob(blob, filename);
+}
+
 function buildAcbfPagesData() {
     return pages.map(p => ({ imageName: p.name, panels: p.panels || [] }));
 }
 
-exportAcbfBtn.addEventListener("click", () => {
+exportAcbfBtn.addEventListener("click", async () => {
     const xml = PanelDetection.buildAcbfXml(buildAcbfPagesData(), bookTitleInput.value || "Untitled");
     const blob = new Blob([xml], { type: "application/xml" });
-    downloadBlob(blob, (bookTitleInput.value || "comic") + ".acbf");
+    await saveBlob(blob, (bookTitleInput.value || "comic") + ".acbf", ".acbf", "application/xml", "ACBF File");
 });
 
 exportCbzBtn.addEventListener("click", async () => {
@@ -2148,7 +2174,7 @@ exportCbzBtn.addEventListener("click", async () => {
         const xml = PanelDetection.buildAcbfXml(buildAcbfPagesData(), bookTitleInput.value || "Untitled");
         zip.file((bookTitleInput.value || "comic") + ".acbf", xml);
         const cbzBlob = await zip.generateAsync({ type: "blob" });
-        downloadBlob(cbzBlob, (bookTitleInput.value || "comic") + ".cbz");
+        await saveBlob(cbzBlob, (bookTitleInput.value || "comic") + ".cbz", ".cbz", "application/vnd.comicbook+zip", "Comic Book Archive");
     } catch (err) {
         writeLog("Failed to build CBZ: " + err.message);
         alert("Failed to build CBZ:\n\n" + err.message);
