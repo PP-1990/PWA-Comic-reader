@@ -123,8 +123,23 @@
     /* Lets the page fill the browser window's full height, which the
        flexbox layout further down needs in order to stretch and fill
        the screen correctly. */
+    /* Only #mainView is ever meant to scroll — it has its own overflow:auto
+       and, during Guided View, gets overflow:hidden set directly (see
+       setGuidedView()) so the transform-driven pan/zoom doesn't fight with
+       manual scrolling. If html/body themselves are ever pushed taller
+       than the viewport (e.g. a tall page plus the debug log box both
+       claiming real height), the browser falls back to its own default
+       root scrollbar instead of the app's styled one (*::-webkit-scrollbar
+       below reliably reaches scrollable elements INSIDE the page, but not
+       always the outermost document scrollbar itself, depending on
+       engine/version) — a plain, unstyled bar that reads as a stray white
+       line against this otherwise all-dark UI. Since nothing here is
+       supposed to make the outer page scroll in the first place, the
+       actual fix is to make that structurally impossible rather than
+       trying to re-theme a scrollbar that shouldn't exist. */
     html, body {
         height: 100%;
+        overflow: hidden;
     }
 
     /* Comic-book styled scrollbars: bold yellow/orange thumb with an inked
@@ -398,6 +413,7 @@
     #mainView {
         flex: 1;
         min-width: 0;
+        min-height: 0; /* same reasoning as min-width:0 above, other axis */
         display: flex;
         flex-direction: column;
         align-items: stretch;
