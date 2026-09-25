@@ -910,7 +910,16 @@
                 </filter>
                 <mask id="previewCinematicMaskDef">
                     <rect id="previewCinematicMaskBg" x="0" y="0" width="0" height="0" fill="white"/>
-                    <polygon id="previewCinematicMaskHole" points="" fill="black" filter="url(#previewCinematicMaskBlur)"/>
+                    <!-- stroke widens the punched-through hole by half its
+                         own width on each side (SVG strokes straddle the
+                         path centerline) — the inward half is redundant
+                         with fill (already solid black there), the outward
+                         half is what actually grows the spotlight 10px
+                         past the panel's own polygon, so the panel's real
+                         inked border isn't sitting right on the mask's own
+                         edge. round joins avoid sharp spikes at acute
+                         corners on an irregular hand-edited polygon. -->
+                    <polygon id="previewCinematicMaskHole" points="" fill="black" stroke="black" stroke-width="20" stroke-linejoin="round" filter="url(#previewCinematicMaskBlur)"/>
                 </mask>
             </defs>
             <rect id="previewCinematicMaskFillRect" x="0" y="0" width="0" height="0" fill="rgba(12,12,12,0.96)" mask="url(#previewCinematicMaskDef)"/>
