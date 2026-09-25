@@ -1295,6 +1295,20 @@ function applyGuidedTransform() {
 // the browser treat "none" as a real, completed state, so a transition
 // applying a NEW transform right after would visibly animate from "none"
 // (the whole, unscaled page) instead of from wherever it actually was.
+// Two elements independently positioned to nominally-identical pixel
+// boundaries (pageCanvas's own box, and cinematicMask's box below) can
+// still round to the physical pixel grid a hair differently — most
+// visibly at a fractional OS display scale (125%, 150%, etc., very
+// common on Windows) — leaving a hairline gap that reveals whatever's
+// behind both of them. Rather than chase exact sub-pixel alignment (which
+// would just as easily drift again on some other display), both
+// cinematicMask's own CSS box (below) and its covered area in viewBox
+// units (see updateCinematicMask()) are deliberately overshot by this
+// many CSS pixels on every side, making that gap structurally impossible
+// instead of merely unlikely. Small enough to be imperceptible as "the
+// spotlight is bigger than the page."
+const CINEMATIC_MASK_OVERSCAN_PX = 2;
+
 function captureNaturalBox() {
     const previousTransition = pageCanvas.style.transition;
     const previousTransform = pageCanvas.style.transform;
@@ -1312,11 +1326,13 @@ function captureNaturalBox() {
     // the mask glued to the page with no further per-move math. Position
     // is expressed relative to #mainView (cinematicMask's own positioned
     // ancestor), since cachedNaturalBox above is in viewport coordinates.
+    // Grown by CINEMATIC_MASK_OVERSCAN_PX on every side — see that
+    // constant's own comment.
     const mainViewBox = mainView.getBoundingClientRect();
-    cinematicMask.style.left = (cachedNaturalBox.left - mainViewBox.left) + "px";
-    cinematicMask.style.top = (cachedNaturalBox.top - mainViewBox.top) + "px";
-    cinematicMask.style.width = cachedNaturalBox.width + "px";
-    cinematicMask.style.height = cachedNaturalBox.height + "px";
+    cinematicMask.style.left = (cachedNaturalBox.left - mainViewBox.left - CINEMATIC_MASK_OVERSCAN_PX) + "px";
+    cinematicMask.style.top = (cachedNaturalBox.top - mainViewBox.top - CINEMATIC_MASK_OVERSCAN_PX) + "px";
+    cinematicMask.style.width = (cachedNaturalBox.width + CINEMATIC_MASK_OVERSCAN_PX * 2) + "px";
+    cinematicMask.style.height = (cachedNaturalBox.height + CINEMATIC_MASK_OVERSCAN_PX * 2) + "px";
 }
 
 const GUIDED_FIT_MARGIN = 0.92; // shrink slightly so a panel's edges aren't flush against the screen edge
@@ -1409,11 +1425,27 @@ function updateCinematicMask(panel) {
     cinematicMaskHole.setAttribute("points", pointsAttr);
     cinematicMaskBlurAmount.setAttribute("stdDeviation", pageCanvas.width * CINEMATIC_MASK_BLUR_RATIO);
 
-    cinematicMask.setAttribute("viewBox", `0 0 ${pageCanvas.width} ${pageCanvas.height}`);
-    cinematicMaskBg.setAttribute("width", pageCanvas.width);
-    cinematicMaskBg.setAttribute("height", pageCanvas.height);
-    cinematicMaskFillRect.setAttribute("width", pageCanvas.width);
-    cinematicMaskFillRect.setAttribute("height", pageCanvas.height);
+    // The covered (dimmed) area is grown by CINEMATIC_MASK_OVERSCAN_PX on
+    // every side, same as cinematicMask's own CSS box in
+    // captureNaturalBox() — see CINEMATIC_MASK_OVERSCAN_PX's comment for
+    // why. Converting that fixed CSS-pixel amount into THIS viewBox's own
+    // units takes the same CSS-px-per-native-px ratio frameRect() uses
+    // elsewhere; the two overscans (this one and captureNaturalBox()'s)
+    // grow the CSS box and the viewBox by matching proportions, so the
+    // viewBox-to-screen scale — and with it every panel's real on-screen
+    // alignment — comes out exactly as it would with no overscan at all.
+    const naturalScale = (cachedNaturalBox ? cachedNaturalBox.width : pageCanvas.width) / pageCanvas.width;
+    const overscan = CINEMATIC_MASK_OVERSCAN_PX / naturalScale;
+
+    cinematicMask.setAttribute("viewBox", `${-overscan} ${-overscan} ${pageCanvas.width + overscan * 2} ${pageCanvas.height + overscan * 2}`);
+    cinematicMaskBg.setAttribute("x", -overscan);
+    cinematicMaskBg.setAttribute("y", -overscan);
+    cinematicMaskBg.setAttribute("width", pageCanvas.width + overscan * 2);
+    cinematicMaskBg.setAttribute("height", pageCanvas.height + overscan * 2);
+    cinematicMaskFillRect.setAttribute("x", -overscan);
+    cinematicMaskFillRect.setAttribute("y", -overscan);
+    cinematicMaskFillRect.setAttribute("width", pageCanvas.width + overscan * 2);
+    cinematicMaskFillRect.setAttribute("height", pageCanvas.height + overscan * 2);
 
     setElementHidden(cinematicMask, false);
 }

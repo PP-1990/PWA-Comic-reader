@@ -1121,6 +1121,20 @@ function applyPreviewTransform() {
 // transition would make the browser treat "none" as a real completed
 // state, so the next transition would visibly animate from the whole
 // untransformed page instead of from wherever it actually was.
+// Two elements independently positioned to nominally-identical pixel
+// boundaries (previewImg's own box, and previewCinematicMask's box below)
+// can still round to the physical pixel grid a hair differently — most
+// visibly at a fractional OS display scale (125%, 150%, etc., very
+// common on Windows) — leaving a hairline gap that reveals whatever's
+// behind both of them. Rather than chase exact sub-pixel alignment (which
+// would just as easily drift again on some other display), both
+// previewCinematicMask's own CSS box (below) and its covered area in
+// viewBox units (see updatePreviewCinematicMask()) are deliberately
+// overshot by this many CSS pixels on every side, making that gap
+// structurally impossible instead of merely unlikely — matches
+// index.html's identical CINEMATIC_MASK_OVERSCAN_PX.
+const CINEMATIC_MASK_OVERSCAN_PX = 2;
+
 function capturePreviewNaturalBox() {
     const previousTransition = previewImg.style.transition;
     const previousTransform = previewImg.style.transform;
@@ -1137,12 +1151,14 @@ function capturePreviewNaturalBox() {
     // why that means giving both the same `transform` afterward is enough
     // to keep the mask glued to the page. Position is expressed relative
     // to #previewStage (the mask's own positioned ancestor), since
-    // previewNaturalBox above is in viewport coordinates.
+    // previewNaturalBox above is in viewport coordinates. Grown by
+    // CINEMATIC_MASK_OVERSCAN_PX on every side — see that constant's own
+    // comment.
     const stageBox = previewStage.getBoundingClientRect();
-    previewCinematicMask.style.left = (previewNaturalBox.left - stageBox.left) + "px";
-    previewCinematicMask.style.top = (previewNaturalBox.top - stageBox.top) + "px";
-    previewCinematicMask.style.width = previewNaturalBox.width + "px";
-    previewCinematicMask.style.height = previewNaturalBox.height + "px";
+    previewCinematicMask.style.left = (previewNaturalBox.left - stageBox.left - CINEMATIC_MASK_OVERSCAN_PX) + "px";
+    previewCinematicMask.style.top = (previewNaturalBox.top - stageBox.top - CINEMATIC_MASK_OVERSCAN_PX) + "px";
+    previewCinematicMask.style.width = (previewNaturalBox.width + CINEMATIC_MASK_OVERSCAN_PX * 2) + "px";
+    previewCinematicMask.style.height = (previewNaturalBox.height + CINEMATIC_MASK_OVERSCAN_PX * 2) + "px";
 }
 
 // Scales and shifts previewImg via a CSS `transform` so the given
@@ -1196,11 +1212,24 @@ function updatePreviewCinematicMask(panel) {
     previewCinematicMaskHole.setAttribute("points", pointsAttr);
     previewCinematicMaskBlurAmount.setAttribute("stdDeviation", previewImg.naturalWidth * CINEMATIC_MASK_BLUR_RATIO);
 
-    previewCinematicMask.setAttribute("viewBox", `0 0 ${previewImg.naturalWidth} ${previewImg.naturalHeight}`);
-    previewCinematicMaskBg.setAttribute("width", previewImg.naturalWidth);
-    previewCinematicMaskBg.setAttribute("height", previewImg.naturalHeight);
-    previewCinematicMaskFillRect.setAttribute("width", previewImg.naturalWidth);
-    previewCinematicMaskFillRect.setAttribute("height", previewImg.naturalHeight);
+    // The covered (dimmed) area is grown by CINEMATIC_MASK_OVERSCAN_PX on
+    // every side, same as previewCinematicMask's own CSS box in
+    // capturePreviewNaturalBox() — see CINEMATIC_MASK_OVERSCAN_PX's
+    // comment for why, and index.html's updateCinematicMask() for why
+    // this keeps the viewBox-to-screen scale (and every panel's real
+    // on-screen alignment) exactly what it would be with no overscan.
+    const naturalScale = (previewNaturalBox ? previewNaturalBox.width : previewImg.naturalWidth) / previewImg.naturalWidth;
+    const overscan = CINEMATIC_MASK_OVERSCAN_PX / naturalScale;
+
+    previewCinematicMask.setAttribute("viewBox", `${-overscan} ${-overscan} ${previewImg.naturalWidth + overscan * 2} ${previewImg.naturalHeight + overscan * 2}`);
+    previewCinematicMaskBg.setAttribute("x", -overscan);
+    previewCinematicMaskBg.setAttribute("y", -overscan);
+    previewCinematicMaskBg.setAttribute("width", previewImg.naturalWidth + overscan * 2);
+    previewCinematicMaskBg.setAttribute("height", previewImg.naturalHeight + overscan * 2);
+    previewCinematicMaskFillRect.setAttribute("x", -overscan);
+    previewCinematicMaskFillRect.setAttribute("y", -overscan);
+    previewCinematicMaskFillRect.setAttribute("width", previewImg.naturalWidth + overscan * 2);
+    previewCinematicMaskFillRect.setAttribute("height", previewImg.naturalHeight + overscan * 2);
 
     setElementHidden(previewCinematicMask, false);
 }
