@@ -1465,7 +1465,9 @@ function polygonBounds(points) {
 // SHOWING A PAGE
 // ============================================================================
 function flattenPanelRows(rows) {
-    return PanelDetection.flattenLayout(rows, mangaMode);
+    const result = [];
+    for (const row of rows) result.push(...(mangaMode ? row.slice().reverse() : row));
+    return result;
 }
 
 async function loadPageImage(page) {

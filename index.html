@@ -1552,13 +1552,15 @@ async function detectPanelsForPage(pageIndex) {
     return rows;
 }
 
-// Flattens a page's detected layout into the actual reading-order list
-// Guided View steps through, applying mangaMode here rather than baking
-// it into detection: manga reads right-to-left, so side-by-side panels
-// are read in reverse while rows and stacks still read top to bottom —
-// see PanelDetection.flattenLayout() in panel-detection.js.
+// Flattens a page's row-grouped panels into the actual reading-order
+// list Guided View steps through, applying mangaMode here rather than
+// baking it into detection: manga reads right-to-left, so each row's
+// left-to-right order (groupPanelsIntoRows()'s canonical order) is
+// simply reversed — row order (top to bottom) doesn't change either way.
 function flattenPanelRows(rows) {
-    return PanelDetection.flattenLayout(rows, mangaMode);
+    const result = [];
+    for (const row of rows) result.push(...(mangaMode ? row.slice().reverse() : row));
+    return result;
 }
 
 // Ensures the given page's panels are detected, and returns them already

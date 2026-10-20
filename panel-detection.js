@@ -21,7 +21,6 @@ const PanelDetection = (() => {
     const PANEL_CLASS_FRAME = 0;   // {0: 'frame', 1: 'text'} — only 'frame' boxes are panels; 'text' (speech bubbles etc.) is ignored
     const PANEL_CONFIDENCE_THRESHOLD = 0.25;
     const PANEL_ROW_TOLERANCE_FRACTION = 0.5; // how close two panels' vertical centers must be (relative to average panel height) to count as "the same row"
-    const PANEL_GUTTER_TOLERANCE_FRACTION = 0.01; // how far two neighbouring panels' detected boxes may overlap (as a fraction of the page's width/height) and still count as separated by a gutter
 
     let panelSessionPromise = null;
 
@@ -213,101 +212,19 @@ const PanelDetection = (() => {
         return rows;
     }
 
-    // Splits boxes into groups separated by an empty gutter along one axis
-    // ("y" = horizontal gutters between stacked bands, "x" = vertical
-    // gutters between side-by-side columns). Sweeps the boxes in order of
-    // their start edge, starting a new group whenever the next box begins
-    // at or past the furthest end edge seen so far (give or take
-    // `tolerance`, since detected boxes of neighbouring panels often
-    // overlap by a few pixels). Returns a single group if no gutter exists.
-    function splitByGap(boxes, axis, tolerance) {
-        const start = axis === "y" ? (b => b.y) : (b => b.x);
-        const end = axis === "y" ? (b => b.y + b.height) : (b => b.x + b.width);
-        const sorted = boxes.slice().sort((a, b) => start(a) - start(b));
-        const groups = [[sorted[0]]];
-        let groupEnd = end(sorted[0]);
-        for (let i = 1; i < sorted.length; i++) {
-            const box = sorted[i];
-            if (start(box) >= groupEnd - tolerance) {
-                groups.push([box]);
-                groupEnd = end(box);
-            } else {
-                groups[groups.length - 1].push(box);
-                groupEnd = Math.max(groupEnd, end(box));
-            }
-        }
-        return groups;
-    }
-
-    // The classic recursive "XY-cut" page layout algorithm: cut the page
-    // along a full-width horizontal gutter if there is one, otherwise along
-    // a full-height vertical gutter, then recurse into each piece. Unlike
-    // groupPanelsIntoRows() above, this handles a tall panel sitting beside
-    // a stack of shorter ones (the common "one tall + two stacked" layout):
-    // the tall panel and the stack become two columns of one row, instead
-    // of being wrongly interleaved by vertical centre.
-    //
-    // Returns rows in the same shape groupPanelsIntoRows() does — an array
-    // of rows, each row an array of cells read left-to-right — except a
-    // cell may itself be an array of rows (a vertical stack, read top to
-    // bottom) instead of a single box, nested as deep as the layout needs.
-    // flattenLayout() below turns either shape into a flat reading order.
-    // If no gutter splits a set of boxes in either direction (overlapping
-    // or interlocking panels), it falls back to groupPanelsIntoRows().
-    function xyCut(boxes, xTolerance, yTolerance) {
-        if (boxes.length === 1) return [[boxes[0]]];
-
-        const bands = splitByGap(boxes, "y", yTolerance);
-        if (bands.length > 1) return bands.flatMap(band => xyCut(band, xTolerance, yTolerance));
-
-        const columns = splitByGap(boxes, "x", xTolerance);
-        if (columns.length > 1) {
-            return [columns.map(column => column.length === 1 ? column[0] : xyCut(column, xTolerance, yTolerance))];
-        }
-
-        return groupPanelsIntoRows(boxes);
-    }
-
-    function buildReadingLayout(boxes, canvasWidth, canvasHeight) {
-        return xyCut(
-            boxes,
-            canvasWidth * PANEL_GUTTER_TOLERANCE_FRACTION,
-            canvasHeight * PANEL_GUTTER_TOLERANCE_FRACTION
-        );
-    }
-
-    // Flattens a layout (see xyCut()) into a plain reading-order list of
-    // boxes. `rtl` is manga's right-to-left reading: it reverses the order
-    // of the cells within each row — i.e. only across side-by-side
-    // columns — but never the top-to-bottom order of rows or of a stack
-    // inside a cell, so a manga page's tall panel on the left is still
-    // read after the stack to its right, and that stack still reads
-    // top-down.
-    function flattenLayout(rows, rtl) {
-        const result = [];
-        for (const row of rows) {
-            const cells = rtl ? row.slice().reverse() : row;
-            for (const cell of cells) {
-                if (Array.isArray(cell)) result.push(...flattenLayout(cell, rtl));
-                else result.push(cell);
-            }
-        }
-        return result;
-    }
-
     // Runs the full detection pipeline against the given canvas and
-    // returns its "frame" boxes laid out in reading order (see xyCut() —
-    // or the whole canvas as a single box, if nothing was detected above
-    // the confidence threshold). Throws on a loading/inference failure —
-    // every caller wraps this in its own try/catch, since what to do about
-    // a failure (fall back silently? tell the user?) is a per-page
-    // decision, not this module's to make.
+    // returns its row-grouped "frame" boxes (or the whole canvas as a
+    // single box, if nothing was detected above the confidence
+    // threshold). Throws on a loading/inference failure — every caller
+    // wraps this in its own try/catch, since what to do about a failure
+    // (fall back silently? tell the user?) is a per-page decision, not
+    // this module's to make.
     async function detectPanels(canvas) {
         const session = await getSession();
         const { tensor, scale, padX, padY } = preprocess(canvas);
         const outputs = await session.run({ [session.inputNames[0]]: tensor });
         const boxes = parseDetections(outputs[session.outputNames[0]], scale, padX, padY, canvas.width, canvas.height);
-        return boxes.length > 0 ? buildReadingLayout(boxes, canvas.width, canvas.height) : [[wholePageBox(canvas)]];
+        return boxes.length > 0 ? groupPanelsIntoRows(boxes) : [[wholePageBox(canvas)]];
     }
 
     // Parses an .acbf file's raw XML text into a Map from image filename
@@ -420,8 +337,6 @@ ${pagesXml}
         detectPanels,
         wholePageBox,
         groupPanelsIntoRows,
-        buildReadingLayout,
-        flattenLayout,
         parseAcbfFrames,
         buildAcbfXml,
         ROW_TOLERANCE_FRACTION: PANEL_ROW_TOLERANCE_FRACTION
