@@ -23,7 +23,7 @@
 // the whole point of this file is to avoid re-downloading things.
 // ============================================================================
 
-const CACHE_NAME = "cbz-reader-v70";
+const CACHE_NAME = "cbz-reader-v71";
 
 // Every file the app needs in order to run at all. These all get
 // downloaded and saved to the local cache up front (see "install" below),
@@ -57,10 +57,16 @@ const APP_SHELL = [
 // Runs once, the first time this exact version of sw.js is loaded (i.e.
 // whenever CACHE_NAME above changes). Downloads and saves every file in
 // APP_SHELL to a local cache named after CACHE_NAME.
+//
+// Each file is fetched with cache: "reload" so the browser's own HTTP
+// cache is skipped. GitHub Pages marks files max-age=600, and a plain
+// addAll() would honour that — meaning an update pushed minutes after the
+// previous one could get the PREVIOUS version's files saved into the new
+// cache, leaving people stuck on stale code even after the version bump.
 self.addEventListener("install", (event) => {
     event.waitUntil(
         caches.open(CACHE_NAME)
-            .then((cache) => cache.addAll(APP_SHELL))
+            .then((cache) => cache.addAll(APP_SHELL.map((url) => new Request(url, { cache: "reload" }))))
             .then(() => self.skipWaiting()) // start using this version right away
     );
 });
