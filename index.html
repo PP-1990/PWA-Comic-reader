@@ -1696,6 +1696,19 @@ async function setGuidedView(enabled) {
         pageCanvas.style.cursor = "grab"; // hints that the page can be dragged to fine-tune the framing
         pageCanvas.style.touchAction = "none"; // let pointer events drive panning instead of the browser's own touch scrolling
         if (hasComic) {
+            // frameRect() positions every panel from the cached natural box,
+            // so it must describe the layout Guided View actually runs in.
+            // Two things change that layout right here: a zoom preset set
+            // beforehand leaves the canvas wider than the viewport (its
+            // measurement was taken at whatever zoom was active when the
+            // page loaded), and switching #mainView to overflow:hidden
+            // removes its scrollbars, which resizes the canvas a little too.
+            // So frame from the normal full-width layout regardless of the
+            // preset zoom (zoomLevel itself is untouched — exiting Guided
+            // View re-applies it), and re-measure now, while the fade
+            // overlay is still fully opaque (see captureNaturalBox()).
+            pageCanvas.style.width = (ZOOM_DEFAULT * 100) + "%";
+            captureNaturalBox();
             guidedFadeStatus.textContent = detectedPanelRowsByPage.has(currentIndex) ? "" : "Detecting panels…";
             currentPanelList = await ensurePanelsForPage(currentIndex);
             guidedFadeStatus.textContent = "";
